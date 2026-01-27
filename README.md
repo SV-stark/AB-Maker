@@ -103,7 +103,7 @@ To use **M4B** or **MP3** features, you must have **FFmpeg** installed and added
 
 This project stands on the shoulders of giants:
 - **[Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx)**: Next-gen offline TTS engine.
-- **[Flet](https://flet.dev/)**: Beautiful UI framework for Python.
+- **[CustomTkinter](https://github.com/TomSchimansky/CustomTkinter)**: Modern UI framework for Python.
 - **[EbookLib](https://github.com/aerkalov/ebooklib)** & **[BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/)**: EPUB parsing.
 - **[FFmpeg](https://ffmpeg.org/)**: Media encoding.
 
