@@ -149,32 +149,35 @@ class EpubProcessor:
         """
         soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Add pauses for line breaks
+        # Add pauses for line breaks - semicolon gives a better pause than a comma
         for br in soup.find_all("br"):
-            br.replace_with(", ")
+            br.replace_with("; ")
             
         # Ensure block elements end with punctuation to prevent run-on sentences
         block_tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'div', 'blockquote']
         for tag_name in block_tags:
             for tag in soup.find_all(tag_name):
                 # Check if tag has text and ends with punctuation
-                text = tag.get_text()
-                if text and text.strip():
-                    last_char = text.strip()[-1]
+                tag_text = tag.get_text()
+                if tag_text and tag_text.strip():
+                    last_char = tag_text.strip()[-1]
                     if last_char not in ".,!?;:":
-                        # Append a period to prompt a pause
-                        tag.append(". ")
+                        # For headers, add a stronger pause
+                        if tag_name.startswith('h'):
+                            tag.append("... ")
+                        else:
+                            # For normal blocks, a period is sufficient
+                            tag.append(". ")
                 
-                # Add spacing after the block
-                tag.insert_after(" ")
+                # Add paragraph spacing after the block
+                tag.insert_after("\n\n")
             
         text = soup.get_text()
         
         # Smart Text Processing
         import re
         
-        # Replace common abbreviations to prevent TTS from pausing for '.'
-        # We replace "Dr." with "Doctor", etc.
+        # Replace common abbreviations
         abbreviations = {
             r"\bMr\.": "Mister",
             r"\bMrs\.": "Missus",
@@ -190,11 +193,19 @@ class EpubProcessor:
         }
         
         for pattern, replacement in abbreviations.items():
-             # Ignore case? "Dr." usually capitalized. Smart enough for now.
              text = re.sub(pattern, replacement, text)
         
-        # Normalize whitespace
-        return " ".join(text.split())
+        # Handle ellipses to ensure they are spoken correctly with a pause
+        text = text.replace("...", " ... ")
+        
+        # Normalize whitespace while preserving double newlines for paragraphs
+        lines = []
+        for p in text.split("\n\n"):
+            p_clean = " ".join(p.split())
+            if p_clean:
+                lines.append(p_clean)
+        
+        return "\n\n".join(lines)
 
     def extract_title(self, html_content):
         """
