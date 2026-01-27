@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Distribution / Build
+build/
+dist/
+*.spec
+
+# IDEs
+.vscode/
+.idea/
+
+# Application Specific
+models/
+*_audiobook/
+*.m4b
+*.wav
+concat_list.txt
+metadata.txt
+
+# Logs
+*.log
