@@ -50,6 +50,39 @@ class ModelManager:
                 "model_file": "en_US-ryan-low.onnx",
                 "tokens_file": "tokens.txt",
                 "recommended": True
+            },
+            {
+                "name": "es_ES-sharvard-medium (Spanish Male)",
+                "language": "Spanish",
+                "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-es_ES-sharvard-medium.tar.bz2",
+                "type": "vits",
+                "archive_name": "vits-piper-es_ES-sharvard-medium.tar.bz2",
+                "extracted_dir": "vits-piper-es_ES-sharvard-medium",
+                "model_file": "es_ES-sharvard-medium.onnx",
+                "tokens_file": "tokens.txt",
+                "recommended": False
+            },
+            {
+                "name": "fr_FR-siwis-medium (French Female)",
+                "language": "French",
+                "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fr_FR-siwis-medium.tar.bz2",
+                "type": "vits",
+                "archive_name": "vits-piper-fr_FR-siwis-medium.tar.bz2",
+                "extracted_dir": "vits-piper-fr_FR-siwis-medium",
+                "model_file": "fr_FR-siwis-medium.onnx",
+                "tokens_file": "tokens.txt",
+                "recommended": False
+            },
+            {
+                "name": "de_DE-thorsten-medium (German Male)",
+                "language": "German",
+                "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-de_DE-thorsten-medium.tar.bz2",
+                "type": "vits",
+                "archive_name": "vits-piper-de_DE-thorsten-medium.tar.bz2",
+                "extracted_dir": "vits-piper-de_DE-thorsten-medium",
+                "model_file": "de_DE-thorsten-medium.onnx",
+                "tokens_file": "tokens.txt",
+                "recommended": False
             }
         ]
 

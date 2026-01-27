@@ -169,6 +169,30 @@ class EpubProcessor:
                 tag.insert_after(" ")
             
         text = soup.get_text()
+        
+        # Smart Text Processing
+        import re
+        
+        # Replace common abbreviations to prevent TTS from pausing for '.'
+        # We replace "Dr." with "Doctor", etc.
+        abbreviations = {
+            r"\bMr\.": "Mister",
+            r"\bMrs\.": "Missus",
+            r"\bDr\.": "Doctor",
+            r"\bProf\.": "Professor",
+            r"\bMs\.": "Miss",
+            r"\bSt\.": "Saint", 
+            r"\bvs\.": "versus",
+            r"\bchap\.": "Chapter",
+            r"\bfig\.": "Figure",
+            r"\bvol\.": "Volume",
+            r"\bed\.": "Edition"
+        }
+        
+        for pattern, replacement in abbreviations.items():
+             # Ignore case? "Dr." usually capitalized. Smart enough for now.
+             text = re.sub(pattern, replacement, text)
+        
         # Normalize whitespace
         return " ".join(text.split())
 

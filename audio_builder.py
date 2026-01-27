@@ -10,7 +10,17 @@ class AudioBuilder:
         # Assume ffmpeg is in PATH
         return "ffmpeg"
 
+    PRESETS = {
+        "Low": {"bitrate": "32k", "channels": "1", "rate": "22050"},
+        "Medium": {"bitrate": "64k", "channels": "1", "rate": "44100"},
+        "High": {"bitrate": "128k", "channels": "2", "rate": "44100"},
+        "Lossless": {"bitrate": "256k", "channels": "2", "rate": "48000"},
+        "Podcast": {"bitrate": "96k", "channels": "1", "rate": "44100"},
+        "Audible": {"bitrate": "64k", "channels": "1", "rate": "22050"}, 
+    }
+
     def check_ffmpeg(self):
+
         """Checks if FFmpeg is available."""
         try:
             subprocess.run([self._get_ffmpeg_cmd(), "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
@@ -63,13 +73,14 @@ class AudioBuilder:
             self.logger.error(f"Error creating metadata: {e}")
             return False
 
-    def merge_chapters_to_m4b(self, chapter_files, output_path, metadata_file=None, cover_path=None, quality="Medium"):
+    def merge_chapters_to_m4b(self, chapter_files, output_path, metadata_file=None, cover_path=None, quality="Medium", normalize=False):
         """
         Merges multiple audio files into a single M4B file with optional cover art.
         chapter_files: List of absolute paths to audio files (wav/mp3)
         metadata_file: Path to FFMETADATA1 file
         cover_path: Path to cover image (jpg/png)
-        quality: Low, Medium, High, Lossless
+        quality: Low, Medium, High, Lossless, Podcast, Audible
+        normalize: Apply audio normalization (loudnorm)
         """
         try:
             # Create a concat list file
@@ -107,22 +118,23 @@ class AudioBuilder:
                 ])
             
             # Quality Settings
-            bitrate = "64k"
-            channels = None
+            preset = self.PRESETS.get(quality, self.PRESETS["Medium"])
+            bitrate = preset["bitrate"]
+            channels = preset["channels"]
+            ar = preset.get("rate", "44100")
             
-            if quality == "Low":
-                bitrate = "32k"
-                channels = "1" # Mono
-            elif quality == "High":
-                bitrate = "128k"
-            elif quality == "Lossless":
-                bitrate = "256k" # Max AAC roughly
-            else: # Medium
-                bitrate = "64k"
+            # Audio filters
+            af_filters = []
+            if normalize:
+                af_filters.append("loudnorm=I=-16:LRA=11:TP=-1.5")
             
+            if af_filters:
+                cmd.extend(["-af", ",".join(af_filters)])
+
             cmd.extend([
                 "-c:a", "aac",
                 "-b:a", bitrate,
+                "-ar", ar
             ])
             
             if channels:
@@ -149,7 +161,7 @@ class AudioBuilder:
             self.logger.error(f"Error during merge: {e}")
             return False
 
-    def convert_to_mp3(self, wav_path, mp3_path, metadata=None, cover_path=None, track_num=None, total_tracks=None, quality="Medium"):
+    def convert_to_mp3(self, wav_path, mp3_path, metadata=None, cover_path=None, track_num=None, total_tracks=None, quality="Medium", normalize=False):
         """
         Converts WAV to MP3 using FFmpeg, then adds ID3 tags with mutagen.
         metadata: dict with 'title', 'author', 'chapter_title' keys
@@ -157,6 +169,7 @@ class AudioBuilder:
         track_num: Track number for this chapter
         total_tracks: Total number of tracks
         quality: Low, Medium, High, Lossless
+        normalize: Apply audio normalization
         """
         try:
             # Step 1: Convert WAV to MP3 with FFmpeg
@@ -180,17 +193,29 @@ class AudioBuilder:
                     "-metadata:s:v", "comment=Cover (front)"
                 ])
                 
+            # Audio filters
+            if normalize:
+                 cmd.extend(["-af", "loudnorm=I=-16:LRA=11:TP=-1.5"])
+
             # Output audio options
             cmd.extend(["-codec:a", "libmp3lame"])
             
-            if quality == "Low":
-                cmd.extend(["-b:a", "64k"])
-            elif quality == "High":
-                cmd.extend(["-b:a", "192k"])
-            elif quality == "Lossless":
-                cmd.extend(["-b:a", "320k"])
-            else: # Medium
-                cmd.extend(["-b:a", "128k"])
+            preset = self.PRESETS.get(quality, self.PRESETS["Medium"])
+            # Mapping bitrates for MP3 (approximate to AAC/General)
+            # MP3 typically needs higher bitrate for transparency
+            bitrate_map = {
+                "32k": "64k",
+                "64k": "128k",
+                "96k": "160k",
+                "128k": "192k",
+                "256k": "320k"
+            }
+            aac_bitrate = preset["bitrate"]
+            mp3_bitrate = bitrate_map.get(aac_bitrate, "128k")
+            
+            cmd.extend(["-b:a", mp3_bitrate, "-ar", preset.get("rate", "44100")])
+            if preset["channels"]:
+                 cmd.extend(["-ac", preset["channels"]])
             
             cmd.append(mp3_path)
             # Capture stderr to show errors

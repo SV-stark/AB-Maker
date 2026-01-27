@@ -19,6 +19,8 @@ from config_manager import ConfigManager
 from conversion_worker import ConversionWorker
 
 from conversion_worker import ConversionWorker
+from exceptions import ABMakerError, ModelDownloadError, TTSGenError, FFmpegError
+
 
 
 
@@ -317,10 +319,15 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         ctk.CTkRadioButton(a_row, text="M4B", variable=self.format_var, value="m4b").pack(side="left", padx=10)
         ctk.CTkRadioButton(a_row, text="MP3", variable=self.format_var, value="mp3").pack(side="left", padx=10)
         
+        
         # Quality
         ctk.CTkLabel(a_row, text="Quality:").pack(side="left", padx=(15, 5))
         self.quality_var = ctk.StringVar(value="Medium")
-        ctk.CTkOptionMenu(a_row, variable=self.quality_var, values=["Low", "Medium", "High", "Lossless"], width=100).pack(side="left", padx=5)
+        ctk.CTkOptionMenu(a_row, variable=self.quality_var, values=["Low", "Medium", "High", "Lossless", "Podcast", "Audible"], width=100).pack(side="left", padx=5)
+        
+        # Normalize
+        self.normalize_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(a_row, text="Normalize", variable=self.normalize_var).pack(side="left", padx=15)
         
         # Start Button
         self.start_btn = ctk.CTkButton(a_row, text="⚡ START CONVERSION", command=self._start_conversion, font=ctk.CTkFont(size=14, weight="bold"), height=40)
@@ -345,6 +352,12 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         self.eta_label = ctk.CTkLabel(s_row, text="--:-- remaining", text_color="gray")
         self.eta_label.pack(side="right")
+        
+        # Chapter Progress List
+        ctk.CTkLabel(self.action_card, text="Detailed Progress", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=15, pady=(5,0))
+        self.detail_scroll = ctk.CTkScrollableFrame(self.action_card, height=150, label_text="Chapters")
+        self.detail_scroll.pack(fill="x", padx=15, pady=5)
+        self.chapter_widgets = {}
         
         # LOG
         self.log_box = ctk.CTkTextbox(self.main_view, height=120, font=ctk.CTkFont(family="Consolas", size=11))
@@ -386,6 +399,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         self.format_var.set(self.config_mgr.get("output_format", "m4b"))
         self.quality_var.set(self.config_mgr.get("last_quality", "Medium"))
+        self.normalize_var.set(self.config_mgr.get("normalize", False))
 
     def _load_recent_files(self):
         """Populate the recent files sidebar."""
@@ -655,12 +669,52 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def _on_worker_progress(self, val):
         self.after(0, lambda: self.progress.set(val))
     
-    def _on_worker_status(self, msg, progress=None, eta=None):
+    def _on_worker_status(self, msg, progress=None, eta=None, chapter_idx=None, chapter_status=None):
         self.after(0, lambda: self.status_label.configure(text=msg))
         if progress is not None:
             self._on_worker_progress(progress)
         if eta is not None:
             self.after(0, lambda: self.eta_label.configure(text=eta))
+            
+        if chapter_idx is not None and chapter_status:
+            self.after(0, lambda: self._update_chapter_status(chapter_idx, chapter_status))
+
+    def _init_chapter_list(self, chapters):
+        """Initialize the chapter list UI (Thread-safe)."""
+        def _ui_update():
+            for w in self.detail_scroll.winfo_children():
+                w.destroy()
+            self.chapter_widgets = {}
+            
+            for i, ch in enumerate(chapters):
+                row = ctk.CTkFrame(self.detail_scroll, fg_color="transparent", height=24)
+                row.pack(fill="x", pady=1)
+                
+                lbl_idx = ctk.CTkLabel(row, text=f"{i+1}.", width=30, anchor="w", text_color="gray")
+                lbl_idx.pack(side="left")
+                
+                lbl_title = ctk.CTkLabel(row, text=ch['title'], anchor="w")
+                lbl_title.pack(side="left", fill="x", expand=True)
+                
+                lbl_status = ctk.CTkLabel(row, text="Pending", width=80, text_color="gray")
+                lbl_status.pack(side="right")
+                
+                self.chapter_widgets[i] = lbl_status
+        
+        self.after(0, _ui_update)
+
+    def _update_chapter_status(self, idx, status_type):
+        """Update individual chapter status."""
+        if idx in self.chapter_widgets:
+            lbl = self.chapter_widgets[idx]
+            if status_type == "processing":
+                lbl.configure(text="Processing...", text_color="#3b82f6") # Blue
+            elif status_type == "done":
+                lbl.configure(text="Done", text_color="#22c55e") # Green
+            elif status_type == "cached":
+                lbl.configure(text="Cached", text_color="#a8a29e") # Gray
+            elif status_type == "failed":
+                lbl.configure(text="Failed", text_color="#ef4444") # Red
     
     def _on_worker_done(self):
         self.current_worker = None
@@ -678,6 +732,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.progress.set(0)
         self.status_label.configure(text="Ready")
         self.eta_label.configure(text="")
+        # Don't clear log or details immediately so user can see result
         self._log("Process finished.")
     
     def _preview_voice(self):
@@ -769,6 +824,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.config_mgr.set("output_format", self.format_var.get())
         self.config_mgr.set("last_quality", self.quality_var.get())
         self.config_mgr.set("last_speaker_id", self.speaker_entry.get())
+        self.config_mgr.set("normalize", self.normalize_var.get())
 
         def run_async_start():
             # Download model if needed
@@ -803,7 +859,8 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 log_callback=self._on_worker_log,
                 progress_callback=self._on_worker_progress,
                 status_callback=self._on_worker_status,
-                done_callback=self._on_worker_done
+                done_callback=self._on_worker_done,
+                init_list_callback=self._init_chapter_list
             )
             self.current_worker = worker
             
@@ -821,7 +878,8 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 use_gpu=self.gpu_var.get(),
                 epub_processor=self.epub_processor,
                 custom_cover_path=self.custom_cover_path,
-                models_dir=self.config_mgr.get_models_dir()
+                models_dir=self.config_mgr.get_models_dir(),
+                normalize=self.normalize_var.get()
             )
 
         threading.Thread(target=run_async_start, daemon=True).start()

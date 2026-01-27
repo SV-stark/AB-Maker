@@ -4,32 +4,36 @@ import os
 import logging
 import soundfile as sf
 import traceback
+from exceptions import ABMakerError, ModelDownloadError, TTSGenError, FFmpegError
+
 
 class ConversionWorker:
-    def __init__(self, tts_engine, audio_builder, log_callback, progress_callback, status_callback, done_callback):
+    def __init__(self, tts_engine, audio_builder, log_callback, progress_callback, status_callback, done_callback, init_list_callback=None):
         self.tts_engine = tts_engine
         self.audio_builder = audio_builder
         self.log = log_callback
         self.update_progress = progress_callback
         self.update_status = status_callback
         self.on_done = done_callback
+        self.init_list = init_list_callback
         
         self._cancel_event = threading.Event()
         self._thread = None
         self.logger = logging.getLogger(__name__)
 
-    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None):
+    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None, normalize=False):
         """Starts the conversion process in a separate thread.
         
         Args:
             custom_cover_path: Optional path to a custom cover image (overrides EPUB cover)
             quality: Audio quality preset (Low, Medium, High, Lossless)
             models_dir: Directory where models are stored
+            normalize: Apply audio normalization
         """
         self._cancel_event.clear()
         self._thread = threading.Thread(
             target=self._run_conversion,
-            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path, quality, models_dir),
+            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path, quality, models_dir, normalize),
             daemon=True
         )
         self._thread.start()
@@ -42,7 +46,7 @@ class ConversionWorker:
     def _is_cancelled(self):
         return self._cancel_event.is_set()
 
-    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None):
+    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None, normalize=False):
         try:
             conversion_start_time = time.time()  # Track total conversion time
             
@@ -107,6 +111,10 @@ class ConversionWorker:
                 if not chapters:
                     self.log(f"Warning: No chapters found in {book_name}")
                     continue
+                
+                # Update UI List
+                if self.init_list:
+                    self.init_list(chapters)
 
                 # Prepare Output
                 base_name = os.path.splitext(book_name)[0]
@@ -157,10 +165,18 @@ class ConversionWorker:
                         except: pass
                     
                     # Generate
-                    if self.tts_engine.generate_audio(chapter['content'], c_filepath, speed=speed, sid=int(speaker_id)):
-                         info = sf.info(c_filepath)
-                         return idx, c_filepath, info.duration, False # Generated
-                    return idx, None, 0, False # Failed
+                    # Update status to processing
+                    self.update_status("", chapter_idx=idx, chapter_status="processing")
+                    
+                    try:
+                        if self.tts_engine.generate_audio(chapter['content'], c_filepath, speed=speed, sid=int(speaker_id)):
+                             info = sf.info(c_filepath)
+                             return idx, c_filepath, info.duration, False # Generated
+                        else:
+                             raise TTSGenError(f"Generation failed for chapter {idx}")
+                    except Exception as e:
+                        self.log(f"Error in chapter {idx}: {e}")
+                        return idx, None, 0, False # Failed
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                     future_to_chapter = {executor.submit(process_chapter, i, ch): i for i, ch in enumerate(chapters)}
@@ -195,7 +211,7 @@ class ConversionWorker:
                                 ch_title = chapters[res_idx]['title']
                                 status_msg = f"Ch {chapters_done}/{total_chapters}: {ch_title[:20]}..."
                                 if res_skipped: status_msg += " (Cached)"
-                                self.update_status(status_msg, progress, eta_str)
+                                self.update_status(status_msg, progress, eta_str, chapter_idx=res_idx, chapter_status="done" if res_path else "failed")
                             
                             if res_path:
                                 chapters[res_idx]['duration'] = res_dur
@@ -251,7 +267,8 @@ class ConversionWorker:
                                         cover_path=cover_path,
                                         track_num=track_idx,
                                         total_tracks=total_tracks,
-                                        quality=quality
+                                        quality=quality,
+                                        normalize=normalize
                                     ):
                                         self.log(f"Created {os.path.basename(mp3_file)}")
                                         # Delete WAV file if conversion successful
@@ -270,7 +287,7 @@ class ConversionWorker:
                         
                         # Create chapter metadata with book info
                         if self.audio_builder.create_chapter_metadata(chapters, metadata_path, book_metadata):
-                            if self.audio_builder.merge_chapters_to_m4b(generated_files, m4b_path, metadata_path, cover_path, quality=quality):
+                            if self.audio_builder.merge_chapters_to_m4b(generated_files, m4b_path, metadata_path, cover_path, quality=quality, normalize=normalize):
                                 self.log(f"Success! M4B saved to: {m4b_path}")
                                 
                                 # Delete all WAV files after successful merge
