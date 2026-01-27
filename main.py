@@ -18,13 +18,9 @@ from audio_builder import AudioBuilder
 from config_manager import ConfigManager
 from conversion_worker import ConversionWorker
 
-try:
-    import winsound
-except ImportError:
-    winsound = None
+from conversion_worker import ConversionWorker
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 # Set appearance mode
 ctk.set_appearance_mode("system")
@@ -36,6 +32,15 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         super().__init__()
         self.TkdndVersion = TkinterDnD._require(self)
         
+        # Initialize Audio (Pygame)
+        try:
+            import pygame
+            pygame.mixer.init()
+            self.pygame = pygame
+        except Exception as e:
+            print(f"Audio init failed: {e}")
+            self.pygame = None
+            
         # Window setup - 900x700 is optimal for this layout
         self.title("AB-Maker: Audiobook Creator")
         self.geometry("900x700")
@@ -47,8 +52,12 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         # Initialize managers
         self.config_mgr = ConfigManager()
-        self.model_manager = ModelManager()
-        self.epub_processor = EpubProcessor()
+        
+        # Setup Logging
+        self._setup_logging()
+        
+        self.model_manager = ModelManager(models_dir=self.config_mgr.get_models_dir())
+        self.epub_processor = EpubProcessor(cache_dir=self.config_mgr.get_cache_dir())
         self.tts_engine = TTSEngine()
         self.audio_builder = AudioBuilder()
         
@@ -67,6 +76,30 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         # Handle close
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    def _setup_logging(self):
+        """Configures rotating file logger."""
+        log_dir = self.config_mgr.get_logs_dir()
+        log_file = os.path.join(log_dir, "app.log")
+        
+        from logging.handlers import RotatingFileHandler
+        
+        # Root logger
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+        
+        # File Handler (10MB, keep 3)
+        file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=3, encoding='utf-8')
+        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+        
+        # Console Handler (Optional, for dev)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(file_formatter)
+        logger.addHandler(console_handler)
+        
+        logging.info("Logging initialized.")
 
     def _generate_icons(self):
         """Generates icons programmatically using Pillow."""
@@ -284,6 +317,11 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         ctk.CTkRadioButton(a_row, text="M4B", variable=self.format_var, value="m4b").pack(side="left", padx=10)
         ctk.CTkRadioButton(a_row, text="MP3", variable=self.format_var, value="mp3").pack(side="left", padx=10)
         
+        # Quality
+        ctk.CTkLabel(a_row, text="Quality:").pack(side="left", padx=(15, 5))
+        self.quality_var = ctk.StringVar(value="Medium")
+        ctk.CTkOptionMenu(a_row, variable=self.quality_var, values=["Low", "Medium", "High", "Lossless"], width=100).pack(side="left", padx=5)
+        
         # Start Button
         self.start_btn = ctk.CTkButton(a_row, text="⚡ START CONVERSION", command=self._start_conversion, font=ctk.CTkFont(size=14, weight="bold"), height=40)
         self.start_btn.pack(side="right", ipadx=20, padx=5)
@@ -347,6 +385,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.model_var.set(last_model)
         
         self.format_var.set(self.config_mgr.get("output_format", "m4b"))
+        self.quality_var.set(self.config_mgr.get("last_quality", "Medium"))
 
     def _load_recent_files(self):
         """Populate the recent files sidebar."""
@@ -558,7 +597,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             return total_size / (1024 * 1024) # MB
 
         installed_found = False
-        models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+        # models_dir = ... (used from self.model_manager.models_dir)
         
         # Refresh logic inside popup
         def refresh_popup():
@@ -569,6 +608,9 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             nonlocal installed_found
             all_models = self.model_manager.list_available_models(only_recommended=False)
             installed_found = False
+            
+            # Use the path from manager
+            models_dir = self.model_manager.models_dir
             
             for m in all_models:
                 m_path = os.path.join(models_dir, m['extracted_dir'])
@@ -624,11 +666,11 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.current_worker = None
         self.after(0, self._reset_ui)
         
-        if winsound:
-            try:
-                winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            except:
-                pass
+        if self.pygame:
+            # Optional: Play a sound using pygame if you have a file
+            pass
+        else:
+            print('\a') # System beep fallback
     
     def _reset_ui(self):
         self.start_btn.configure(state="normal")
@@ -663,8 +705,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 sid = int(self.speaker_entry.get())
                 
                 # Config for TTS
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                models_dir = os.path.join(base_dir, "models")
+                models_dir = self.config_mgr.get_models_dir()
                 model_path = os.path.join(models_dir, model_info['extracted_dir'])
                 
                 config = model_info.copy()
@@ -680,8 +721,15 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 if self.tts_engine.initialize_model(config):
                     if self.tts_engine.generate_audio(text, temp_path, speed=speed, sid=sid):
                         # Play
-                        if winsound:
-                            winsound.PlaySound(temp_path, winsound.SND_FILENAME)
+                        if self.pygame:
+                            try:
+                                self.pygame.mixer.music.load(temp_path)
+                                self.pygame.mixer.music.play()
+                                # Wait for playback (blocking just this thread)
+                                while self.pygame.mixer.music.get_busy():
+                                    self.pygame.time.Clock().tick(10)
+                            except Exception as pe:
+                                self._log(f"Playback error: {pe}")
                         
                         self.after(0, lambda: self.status_label.configure(text="Preview playing..."))
                     else:
@@ -719,6 +767,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         # Save format preference
         self.config_mgr.set("output_format", self.format_var.get())
+        self.config_mgr.set("last_quality", self.quality_var.get())
         self.config_mgr.set("last_speaker_id", self.speaker_entry.get())
 
         def run_async_start():
@@ -768,9 +817,11 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 speed=self.speed_var.get(),
                 speaker_id=self.speaker_entry.get(),
                 output_format=self.format_var.get(),
+                quality=self.quality_var.get(),
                 use_gpu=self.gpu_var.get(),
                 epub_processor=self.epub_processor,
-                custom_cover_path=self.custom_cover_path
+                custom_cover_path=self.custom_cover_path,
+                models_dir=self.config_mgr.get_models_dir()
             )
 
         threading.Thread(target=run_async_start, daemon=True).start()

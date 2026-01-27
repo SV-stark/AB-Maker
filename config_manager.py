@@ -1,15 +1,89 @@
 import json
 import os
 import logging
+import shutil
+import threading
+import sys
 
 class ConfigManager:
-    def __init__(self, config_file="config.json"):
-        self.config_file = config_file
+    APP_NAME = "AB-Maker"
+
+    def __init__(self):
         self.logger = logging.getLogger(__name__)
+        self.app_data_dir = self._get_app_data_dir()
+        self.config_file = os.path.join(self.app_data_dir, "config.json")
+        
+        # Ensure directory
+        if not os.path.exists(self.app_data_dir):
+            os.makedirs(self.app_data_dir)
+            
+        self._migrate_legacy_data()
         self.config = self._load_from_disk()
+        
+        # Debouncing
+        self._save_timer = None
+        self._lock = threading.Lock()
+
+    def _get_app_data_dir(self):
+        """Returns standard AppData path."""
+        if sys.platform == "win32":
+            base = os.getenv('APPDATA')
+        else:
+            base = os.path.join(os.path.expanduser("~"), ".local", "share")
+        
+        if not base:
+             base = os.path.expanduser("~")
+             
+        return os.path.join(base, self.APP_NAME)
+    
+    def get_app_data_path(self):
+        return self.app_data_dir
+        
+    def get_models_dir(self):
+        path = os.path.join(self.app_data_dir, "models")
+        if not os.path.exists(path): os.makedirs(path)
+        return path
+
+    def get_cache_dir(self):
+        path = os.path.join(self.app_data_dir, ".cache")
+        if not os.path.exists(path): os.makedirs(path)
+        return path
+    
+    def get_logs_dir(self):
+        path = os.path.join(self.app_data_dir, "logs")
+        if not os.path.exists(path): os.makedirs(path)
+        return path
+
+    def _migrate_legacy_data(self):
+        """Moves data from current working dir to AppData if found."""
+        cwd = os.getcwd()
+        if cwd == self.app_data_dir: return
+
+        # Files/Folders to migrate
+        items = {
+            "config.json": self.config_file,
+            "models": os.path.join(self.app_data_dir, "models"),
+            ".cache": os.path.join(self.app_data_dir, ".cache"),
+        }
+
+        for src_name, dest_path in items.items():
+            src_path = os.path.join(cwd, src_name)
+            
+            # Only migrate if source exists AND dest does NOT
+            if os.path.exists(src_path) and not os.path.exists(dest_path):
+                try:
+                    self.logger.info(f"Migrating {src_name} to {dest_path}...")
+                    if os.path.isdir(src_path):
+                        # Move directory
+                        shutil.move(src_path, dest_path)
+                    else:
+                        # Move file
+                        shutil.move(src_path, dest_path)
+                    self.logger.info("Migration successful.")
+                except Exception as e:
+                    self.logger.error(f"Migration failed for {src_name}: {e}")
 
     def _load_from_disk(self):
-        """Loads config from disk or returns defaults."""
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r') as f:
@@ -17,7 +91,6 @@ class ConfigManager:
             except Exception as e:
                 self.logger.error(f"Error loading config: {e}")
         
-        # Default configuration
         return {
             "theme_mode": "system",
             "recent_files": [],
@@ -25,14 +98,19 @@ class ConfigManager:
             "last_speaker_id": "0",
             "use_gpu": False,
             "last_model": None,
-            "output_format": "m4b"
+            "output_format": "m4b",
+            "last_quality": "Medium"
         }
 
     def save(self):
-        """Saves current config to disk."""
+        """Immediate save."""
+        self._flush_save()
+
+    def _flush_save(self):
         try:
-            with open(self.config_file, 'w') as f:
-                json.dump(self.config, f, indent=4)
+            with self._lock:
+                with open(self.config_file, 'w') as f:
+                    json.dump(self.config, f, indent=4)
         except Exception as e:
             self.logger.error(f"Error saving config: {e}")
 
@@ -40,20 +118,26 @@ class ConfigManager:
         return self.config.get(key, default)
 
     def set(self, key, value):
-        self.config[key] = value
-        self.save()
+        with self._lock:
+            if self.config.get(key) == value:
+                return # No change
+            
+            self.config[key] = value
+            
+            # Cancel existing timer
+            if self._save_timer:
+                self._save_timer.cancel()
+            
+            # Schedule new save (Debounce 1.0s)
+            self._save_timer = threading.Timer(1.0, self._flush_save)
+            self._save_timer.start()
 
     def add_recent_file(self, path):
-        """Adds a path to recent files, maintaining a max size of 10."""
         history = self.config.get("recent_files", [])
-        
-        # Remove if exists to move to top
         if path in history:
             history.remove(path)
-            
         history.insert(0, path)
-        self.config["recent_files"] = history[:10]
-        self.save()
+        self.set("recent_files", history[:10])
 
     def get_recent_files(self):
         return self.config.get("recent_files", [])

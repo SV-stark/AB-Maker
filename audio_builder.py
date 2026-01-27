@@ -63,12 +63,13 @@ class AudioBuilder:
             self.logger.error(f"Error creating metadata: {e}")
             return False
 
-    def merge_chapters_to_m4b(self, chapter_files, output_path, metadata_file=None, cover_path=None):
+    def merge_chapters_to_m4b(self, chapter_files, output_path, metadata_file=None, cover_path=None, quality="Medium"):
         """
         Merges multiple audio files into a single M4B file with optional cover art.
         chapter_files: List of absolute paths to audio files (wav/mp3)
         metadata_file: Path to FFMETADATA1 file
         cover_path: Path to cover image (jpg/png)
+        quality: Low, Medium, High, Lossless
         """
         try:
             # Create a concat list file
@@ -105,14 +106,34 @@ class AudioBuilder:
                     "-disposition:v:0", "attached_pic"
                 ])
             
+            # Quality Settings
+            bitrate = "64k"
+            channels = None
+            
+            if quality == "Low":
+                bitrate = "32k"
+                channels = "1" # Mono
+            elif quality == "High":
+                bitrate = "128k"
+            elif quality == "Lossless":
+                bitrate = "256k" # Max AAC roughly
+            else: # Medium
+                bitrate = "64k"
+            
             cmd.extend([
-                "-c:a", "aac",  # Encode to AAC for M4B
-                "-b:a", "128k",
+                "-c:a", "aac",
+                "-b:a", bitrate,
+            ])
+            
+            if channels:
+                cmd.extend(["-ac", channels])
+                
+            cmd.extend([
                 "-y",  # Overwrite
                 output_path
             ])
             
-            self.logger.info(f"Running ffmpeg: {' '.join(cmd)}")
+            self.logger.info(f"Running ffmpeg (M4B {quality}): {' '.join(cmd)}")
             result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
             # Cleanup concat list
@@ -128,13 +149,14 @@ class AudioBuilder:
             self.logger.error(f"Error during merge: {e}")
             return False
 
-    def convert_to_mp3(self, wav_path, mp3_path, metadata=None, cover_path=None, track_num=None, total_tracks=None):
+    def convert_to_mp3(self, wav_path, mp3_path, metadata=None, cover_path=None, track_num=None, total_tracks=None, quality="Medium"):
         """
         Converts WAV to MP3 using FFmpeg, then adds ID3 tags with mutagen.
         metadata: dict with 'title', 'author', 'chapter_title' keys
         cover_path: Path to cover image
         track_num: Track number for this chapter
         total_tracks: Total number of tracks
+        quality: Low, Medium, High, Lossless
         """
         try:
             # Step 1: Convert WAV to MP3 with FFmpeg
@@ -159,10 +181,16 @@ class AudioBuilder:
                 ])
                 
             # Output audio options
-            cmd.extend([
-                "-codec:a", "libmp3lame",
-                "-qscale:a", "2",  # VBR quality 2 (~190kbps)
-            ])
+            cmd.extend(["-codec:a", "libmp3lame"])
+            
+            if quality == "Low":
+                cmd.extend(["-b:a", "64k"])
+            elif quality == "High":
+                cmd.extend(["-b:a", "192k"])
+            elif quality == "Lossless":
+                cmd.extend(["-b:a", "320k"])
+            else: # Medium
+                cmd.extend(["-b:a", "128k"])
             
             cmd.append(mp3_path)
             # Capture stderr to show errors

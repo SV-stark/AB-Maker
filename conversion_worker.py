@@ -18,16 +18,18 @@ class ConversionWorker:
         self._thread = None
         self.logger = logging.getLogger(__name__)
 
-    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None):
+    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None):
         """Starts the conversion process in a separate thread.
         
         Args:
             custom_cover_path: Optional path to a custom cover image (overrides EPUB cover)
+            quality: Audio quality preset (Low, Medium, High, Lossless)
+            models_dir: Directory where models are stored
         """
         self._cancel_event.clear()
         self._thread = threading.Thread(
             target=self._run_conversion,
-            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path),
+            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path, quality, models_dir),
             daemon=True
         )
         self._thread.start()
@@ -40,7 +42,7 @@ class ConversionWorker:
     def _is_cancelled(self):
         return self._cancel_event.is_set()
 
-    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None):
+    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None):
         try:
             conversion_start_time = time.time()  # Track total conversion time
             
@@ -51,8 +53,10 @@ class ConversionWorker:
             from model_manager import ModelManager
             
             # Helper to get models dir relative to this script
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            models_dir = os.path.join(base_dir, "models") 
+            if not models_dir:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                models_dir = os.path.join(base_dir, "models") 
+                
             model_path = os.path.join(models_dir, model_info['extracted_dir'])
             
             config = model_info.copy()
@@ -246,7 +250,8 @@ class ConversionWorker:
                                         metadata=mp3_metadata, 
                                         cover_path=cover_path,
                                         track_num=track_idx,
-                                        total_tracks=total_tracks
+                                        total_tracks=total_tracks,
+                                        quality=quality
                                     ):
                                         self.log(f"Created {os.path.basename(mp3_file)}")
                                         # Delete WAV file if conversion successful
@@ -265,7 +270,7 @@ class ConversionWorker:
                         
                         # Create chapter metadata with book info
                         if self.audio_builder.create_chapter_metadata(chapters, metadata_path, book_metadata):
-                            if self.audio_builder.merge_chapters_to_m4b(generated_files, m4b_path, metadata_path, cover_path):
+                            if self.audio_builder.merge_chapters_to_m4b(generated_files, m4b_path, metadata_path, cover_path, quality=quality):
                                 self.log(f"Success! M4B saved to: {m4b_path}")
                                 
                                 # Delete all WAV files after successful merge

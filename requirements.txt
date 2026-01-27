@@ -1,4 +1,5 @@
 customtkinter
+pygame
 --find-links https://k2-fsa.github.io/sherpa-onnx/cuda.html
 sherpa-onnx==1.12.23+cuda
 EbookLib
