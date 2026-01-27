@@ -96,7 +96,8 @@ class AudioBuilder:
                 
             return True
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"FFmpeg failed: {e.stderr.decode()}")
+            err_msg = e.stderr.decode() if e.stderr else "Unknown error"
+            self.logger.error(f"FFmpeg failed: {err_msg}")
             return False
         except Exception as e:
             self.logger.error(f"Error during merge: {e}")

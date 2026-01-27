@@ -4,13 +4,33 @@ from bs4 import BeautifulSoup
 import os
 
 class EpubProcessor:
-    def __init__(self):
-        pass
+    def __init__(self, cache_dir=".cache"):
+        self.cache_dir = cache_dir
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
 
     def extract_chapters(self, epub_path):
         """
         Reads an EPUB file and returns a list of dictionaries with 'title' and 'content'.
+        Uses disk caching to speed up subsequent loads.
         """
+        # 1. Check Cache
+        import hashlib
+        import json
+        
+        try:
+            # Create a unique hash for the file based on path and mod time
+            mod_time = os.path.getmtime(epub_path)
+            file_hash = hashlib.md5(f"{epub_path}_{mod_time}".encode()).hexdigest()
+            cache_file = os.path.join(self.cache_dir, f"{file_hash}.json")
+            
+            if os.path.exists(cache_file):
+                print(f"Loading chapters from cache: {cache_file}")
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Cache check failed: {e}")
+
         try:
             book = epub.read_epub(epub_path)
             chapters = []
@@ -39,7 +59,18 @@ class EpubProcessor:
                             print(f"Warning: Failed to process chapter {id_ref}: {chap_err}")
                             continue
 
+            # 2. Save to Cache
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(chapters, f)
+            except Exception as e:
+                print(f"Failed to write cache: {e}")
+
             return chapters
+            return chapters
+        except KeyError:
+             print("Error: EPUB keys missing. Content might be encrypted/DRM protected.")
+             return []
         except Exception as e:
             print(f"Error processing EPUB: {e}")
             return []

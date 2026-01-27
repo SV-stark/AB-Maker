@@ -28,3 +28,8 @@ metadata.txt
 # Logs
 *.log
 check_flet.py
+verify_flet_comprehensive.py
+debug_filepicker.py
+main_old.py
+config.json
+
