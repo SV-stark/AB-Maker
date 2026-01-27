@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Python](https://img.shields.io/badge/Python-3.13+-yellow)
-![License](https://img.shields.io/badge/License-Apache_2.0-green)
+![License](https://img.shields.io/badge/License-AGPL_v3-blue)
 ![Status](https://img.shields.io/badge/Status-Active-success)
 
 ---
@@ -149,4 +149,4 @@ This project stands on the shoulders of giants:
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
