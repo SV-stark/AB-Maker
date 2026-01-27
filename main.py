@@ -255,14 +255,14 @@ def main(page: ft.Page):
         )
         page.show_dialog(dlg)
 
-    # --- Setup UI Components ---
-    
-    # File Pickers
-    # File Pickers
+    # File Pickers - strictly compatible setup for Flet 0.80.4
     file_picker = ft.FilePicker()
-    file_picker.on_result = on_files_selected
     folder_picker = ft.FilePicker()
+    
+    # Assign callbacks manually
+    file_picker.on_result = on_files_selected
     folder_picker.on_result = on_folder_selected
+    
     page.overlay.extend([file_picker, folder_picker])
     
     # History Menu

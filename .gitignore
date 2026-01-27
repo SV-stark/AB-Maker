@@ -34,3 +34,6 @@ main_old.py
 config.json
 
 check_flet_real.py
+diagnose_filepicker.py
+tests/test_flet_compatibility.py
+inspect_filepicker.py
