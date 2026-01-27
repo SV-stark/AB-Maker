@@ -258,8 +258,11 @@ def main(page: ft.Page):
     # --- Setup UI Components ---
     
     # File Pickers
-    file_picker = ft.FilePicker(on_result=on_files_selected)
-    folder_picker = ft.FilePicker(on_result=on_folder_selected)
+    # File Pickers
+    file_picker = ft.FilePicker()
+    file_picker.on_result = on_files_selected
+    folder_picker = ft.FilePicker()
+    folder_picker.on_result = on_folder_selected
     page.overlay.extend([file_picker, folder_picker])
     
     # History Menu
@@ -268,10 +271,10 @@ def main(page: ft.Page):
         hist = config_mgr.get_recent_files()
         history_menu.items = [
             ft.PopupMenuItem(
-                text=os.path.basename(p), 
+                content=ft.Text(os.path.basename(p)), 
                 on_click=lambda e, p=p: on_files_selected(SimpleEvent(files=[SimpleFile(p)]))
             ) for p in hist
-        ] if hist else [ft.PopupMenuItem(text="No recent files", disabled=True)]
+        ] if hist else [ft.PopupMenuItem(content=ft.Text("No recent files"), disabled=True)]
         if page.appbar: page.update()
 
     # Mocks because Flet events are hard to instantiate manually
@@ -311,14 +314,14 @@ def main(page: ft.Page):
         options=model_opts, 
         value=last_model if last_model else model_opts[0].key if model_opts else None,
         label="Voice Model",
-        on_change=on_model_change,
         expand=True
     )
+    model_dropdown_ctrl.on_change = on_model_change
 
     # Build Layout
     page.appbar = ft.AppBar(
         title=ft.Text("AB-Maker", weight=ft.FontWeight.BOLD),
-        bgcolor=ft.Colors.SURFACE_VARIANT,
+        bgcolor=ft.Colors.GREY_200,
         actions=[
             history_menu,
             ft.IconButton(ft.Icons.INFO_OUTLINE, tooltip="About", on_click=open_about),
@@ -343,7 +346,7 @@ def main(page: ft.Page):
                     ])
                 ]),
                 padding=15,
-                bgcolor=ft.Colors.SURFACE_VARIANT,
+                bgcolor=ft.Colors.GREY_200,
                 border_radius=10
             ),
             
@@ -377,7 +380,7 @@ def main(page: ft.Page):
                     ])
                 ]),
                 padding=15,
-                bgcolor=ft.Colors.SURFACE_VARIANT,
+                bgcolor=ft.Colors.GREY_200,
                 border_radius=10
             ),
             
@@ -403,7 +406,7 @@ def main(page: ft.Page):
                     ft.Text("Ready", ref=conversion_status_text, size=12, text_align=ft.TextAlign.CENTER, width=page.window_width)
                 ]),
                 padding=15,
-                bgcolor=ft.Colors.SURFACE_VARIANT, 
+                bgcolor=ft.Colors.GREY_200, 
                 border_radius=10
             ),
 
@@ -456,4 +459,4 @@ def main(page: ft.Page):
     page.on_file_drop = on_drop
 
 if __name__ == "__main__":
-    ft.run(target=main)
+    ft.run(main)
