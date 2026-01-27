@@ -90,10 +90,11 @@ class ConversionWorker:
                 if self._is_cancelled(): break
                 
                 book_name = os.path.basename(epub_path)
-                self.log(f"Processing Book {b_idx+1}/{total_books}: {book_name}")
+                book_prefix = f"[Book {b_idx+1}/{total_books}] " if total_books > 1 else ""
+                self.log(f"{book_prefix}Processing: {book_name}")
                 
                 # Extract book metadata (title, author, cover)
-                self.update_status(f"Extracting metadata from {book_name}...", 0)
+                self.update_status(f"{book_prefix}Extracting metadata from {book_name}...", 0)
                 book_metadata = epub_processor.extract_metadata(epub_path)
                 
                 # Use custom cover if provided, otherwise use extracted cover
@@ -105,7 +106,7 @@ class ConversionWorker:
                     self.log(f"Cover: {os.path.basename(cover_path)}")
                 
                 # Parse Chapters
-                self.update_status(f"Parsing {book_name}...", 0)
+                self.update_status(f"{book_prefix}Parsing {book_name}...", 0)
                 chapters = epub_processor.extract_chapters(epub_path)
                 
                 if not chapters:
@@ -154,6 +155,8 @@ class ConversionWorker:
                     
                     c_title = chapter['title']
                     c_safe_title = "".join([c for c in c_title if c.isalnum() or c in (' ', '-', '_')]).strip()
+                    if not c_safe_title:
+                        c_safe_title = f"chapter_{idx+1}"
                     c_filename = f"{idx+1:03d}_{c_safe_title}.wav"
                     c_filepath = os.path.join(output_dir, c_filename)
                     
@@ -162,7 +165,9 @@ class ConversionWorker:
                         try:
                             info = sf.info(c_filepath)
                             return idx, c_filepath, info.duration, True # Skipped
-                        except: pass
+                        except Exception as e:
+                            self.logger.debug(f"Could not read cached audio file {c_filepath}: {e}. Will regenerate.")
+                            # File exists but is corrupted, continue to regenerate
                     
                     # Generate
                     # Update status to processing
@@ -214,7 +219,11 @@ class ConversionWorker:
                                 self.update_status(status_msg, progress, eta_str, chapter_idx=res_idx, chapter_status="done" if res_path else "failed")
                             
                             if res_path:
-                                chapters[res_idx]['duration'] = res_dur
+                                with progress_lock:
+                                     chapters[res_idx]['duration'] = res_dur
+                            else:
+                                with progress_lock:
+                                     chapters[res_idx]['duration'] = 0
                                 # We need to maintain order for merging, but generated_files list is append-only
                                 # Better to reconstruct generated_files list at the end based on chapters
                                 
@@ -300,7 +309,8 @@ class ConversionWorker:
                                 # Clean up metadata file
                                 try:
                                     os.remove(metadata_path)
-                                except: pass
+                                except Exception as e:
+                                    self.logger.debug(f"Could not delete metadata file {metadata_path}: {e}")
                             else:
                                 self.log("Error merging M4B (Check FFmpeg).")
                         else:

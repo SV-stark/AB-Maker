@@ -1,23 +1,49 @@
 import os
 import subprocess
 import logging
+import json
+from core.ffmpeg_errors import get_friendly_ffmpeg_error
+from exceptions import FFmpegError
 
 class AudioBuilder:
-    def __init__(self):
+    def __init__(self, presets_path=None):
         self.logger = logging.getLogger(__name__)
+        
+        # Load presets from JSON file
+        if presets_path is None:
+            presets_path = os.path.join(os.path.dirname(__file__), "config", "presets.json")
+        
+        self.PRESETS = self._load_presets(presets_path)
+    
+    def _load_presets(self, path):
+        """Load quality presets from JSON file."""
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    presets = json.load(f)
+                    self.logger.info(f"Loaded {len(presets)} quality presets from {path}")
+                    return presets
+            else:
+                self.logger.warning(f"Presets file not found: {path}. Using defaults.")
+                return self._get_default_presets()
+        except Exception as e:
+            self.logger.error(f"Failed to load presets: {e}. Using defaults.")
+            return self._get_default_presets()
+    
+    def _get_default_presets(self):
+        """Fallback presets if JSON file is missing."""
+        return {
+            "Low": {"bitrate": "32k", "channels": "1", "sample_rate": "22050"},
+            "Medium": {"bitrate": "64k", "channels": "1", "sample_rate": "44100"},
+            "High": {"bitrate": "128k", "channels": "2", "sample_rate": "44100"},
+            "Lossless": {"bitrate": "256k", "channels": "2", "sample_rate": "48000"},
+            "Podcast": {"bitrate": "96k", "channels": "1", "sample_rate": "44100"},
+            "Audible": {"bitrate": "64k", "channels": "1", "sample_rate": "22050"},
+        }
 
     def _get_ffmpeg_cmd(self):
         # Assume ffmpeg is in PATH
         return "ffmpeg"
-
-    PRESETS = {
-        "Low": {"bitrate": "32k", "channels": "1", "rate": "22050"},
-        "Medium": {"bitrate": "64k", "channels": "1", "rate": "44100"},
-        "High": {"bitrate": "128k", "channels": "2", "rate": "44100"},
-        "Lossless": {"bitrate": "256k", "channels": "2", "rate": "48000"},
-        "Podcast": {"bitrate": "96k", "channels": "1", "rate": "44100"},
-        "Audible": {"bitrate": "64k", "channels": "1", "rate": "22050"}, 
-    }
 
     def check_ffmpeg(self):
 
@@ -89,6 +115,7 @@ class AudioBuilder:
                 for file_path in chapter_files:
                     # Escape paths for ffmpeg concat demuxer
                     safe_path = file_path.replace('\\', '/')
+                    # Escape single quotes and allow for spaces
                     safe_path = safe_path.replace("'", "'\\''")
                     f.write(f"file '{safe_path}'\n")
 
@@ -154,12 +181,12 @@ class AudioBuilder:
                 
             return True
         except subprocess.CalledProcessError as e:
-            err_msg = e.stderr.decode() if e.stderr else "Unknown error"
-            self.logger.error(f"FFmpeg failed: {err_msg}")
-            return False
+            friendly_error = get_friendly_ffmpeg_error(e)
+            self.logger.error(f"FFmpeg merging failed: {friendly_error}")
+            raise FFmpegError(friendly_error)
         except Exception as e:
             self.logger.error(f"Error during merge: {e}")
-            return False
+            raise FFmpegError(f"Failed to create M4B file: {str(e)}")
 
     def convert_to_mp3(self, wav_path, mp3_path, metadata=None, cover_path=None, track_num=None, total_tracks=None, quality="Medium", normalize=False):
         """

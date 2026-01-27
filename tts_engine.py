@@ -2,8 +2,9 @@ import sherpa_onnx
 import soundfile as sf
 import os
 import logging
+from core.base_tts import BaseTTSEngine
 
-class TTSEngine:
+class TTSEngine(BaseTTSEngine):
     def __init__(self):
         self.tts = None
         self.sample_rate = 22050 # Default, will update from model
@@ -54,9 +55,16 @@ class TTSEngine:
             except Exception as e:
                 if provider == "cuda":
                     self.logger.warning(f"Failed to initialize with CUDA: {e}. Falling back to CPU...")
-                    # Fallback to CPU
+                    self.logger.warning(f"Failed to initialize with CUDA: {e}. Falling back to CPU...")
+                    # Fallback to CPU - Recreate config cleanly
                     model_config_args["provider"] = "cpu"
-                    tts_config.model.provider = "cpu" # Update config directly
+                    
+                    # Rebuild the nested config
+                    tts_config = sherpa_onnx.OfflineTtsConfig(
+                        model=sherpa_onnx.OfflineTtsModelConfig(**model_config_args),
+                        rule_fsts="",
+                        max_num_sentences=1,
+                    )
                     self.tts = sherpa_onnx.OfflineTts(tts_config)
                 else:
                     raise e
@@ -91,3 +99,8 @@ class TTSEngine:
         except Exception as e:
             self.logger.error(f"Error generating audio: {e}")
             return False
+    
+    def get_sample_rate(self):
+        """Get the sample rate of the current model."""
+        return self.sample_rate if self.tts else None
+

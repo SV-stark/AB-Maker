@@ -1,0 +1,38 @@
+{
+    "Low": {
+        "bitrate": "32k",
+        "channels": "1",
+        "sample_rate": "22050",
+        "description": "Low quality for testing or very small files"
+    },
+    "Medium": {
+        "bitrate": "64k",
+        "channels": "2",
+        "sample_rate": "44100",
+        "description": "Balanced quality and file size"
+    },
+    "High": {
+        "bitrate": "128k",
+        "channels": "2",
+        "sample_rate": "44100",
+        "description": "High quality for most use cases"
+    },
+    "Lossless": {
+        "codec": "flac",
+        "channels": "2",
+        "sample_rate": "48000",
+        "description": "Perfect quality, larger file size"
+    },
+    "Podcast": {
+        "bitrate": "48k",
+        "channels": "1",
+        "sample_rate": "44100",
+        "description": "Optimized for voice content"
+    },
+    "Audible": {
+        "bitrate": "64k",
+        "channels": "1",
+        "sample_rate": "22050",
+        "description": "Compatible with Audible standards"
+    }
+}

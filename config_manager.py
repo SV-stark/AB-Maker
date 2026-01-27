@@ -141,3 +141,25 @@ class ConfigManager:
 
     def get_recent_files(self):
         return self.config.get("recent_files", [])
+    
+    # File Status Tracking
+    def set_file_status(self, file_path, status):
+        """
+        Set the conversion status for a file.
+        status: 'in_progress', 'completed', 'failed'
+        """
+        if "file_status" not in self.config:
+            self.config["file_status"] = {}
+        self.config["file_status"][file_path] = status
+        self.save()
+    
+    def get_file_status(self, file_path):
+        """Get the conversion status for a file."""
+        return self.config.get("file_status", {}).get(file_path, None)
+    
+    def clear_file_status(self, file_path):
+        """Clear the status for a file."""
+        if "file_status" in self.config and file_path in self.config["file_status"]:
+            del self.config["file_status"][file_path]
+            self.save()
+
