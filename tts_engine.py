@@ -48,8 +48,19 @@ class TTSEngine:
                 max_num_sentences=1,
             )
 
-            # Create TTS instance (will fail if config is invalid)
-            self.tts = sherpa_onnx.OfflineTts(tts_config)
+            # Create TTS instance
+            try:
+                self.tts = sherpa_onnx.OfflineTts(tts_config)
+            except Exception as e:
+                if provider == "cuda":
+                    self.logger.warning(f"Failed to initialize with CUDA: {e}. Falling back to CPU...")
+                    # Fallback to CPU
+                    model_config_args["provider"] = "cpu"
+                    tts_config.model.provider = "cpu" # Update config directly
+                    self.tts = sherpa_onnx.OfflineTts(tts_config)
+                else:
+                    raise e
+
             self.sample_rate = self.tts.sample_rate
             self.logger.info(f"TTS Model initialized. Sample rate: {self.sample_rate}")
             return True

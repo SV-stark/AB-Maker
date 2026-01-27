@@ -81,6 +81,35 @@ To use **M4B** or **MP3** features, you must have **FFmpeg** installed and added
 
 ---
 
+## 🚀 Enabling GPU Acceleration (Optional)
+
+To achieve **10x-50x faster conversions**, you can enable NVIDIA GPU support.
+
+### 1. Requirements
+- **NVIDIA GPU** (GeForce/RTX etc.) with updated drivers.
+- **Windows 10/11** (x64).
+
+### 2. Install CUDA & cuDNN
+AB-Maker requires specific dynamic libraries to unlock the GPU:
+
+1.  **Download CUDA Toolkit 12.x**: [NVIDIA Developer](https://developer.nvidia.com/cuda-downloads)
+2.  **Download cuDNN 9.x (for CUDA 12)**: [NVIDIA Developer](https://developer.nvidia.com/cudnn)
+    -   *Note: Requires a free NVIDIA Developer account.*
+3.  **Setup**:
+    -   Install CUDA Toolkit.
+    -   Extract the cuDNN zip file.
+    -   Copy the contents of `bin`, `include`, and `lib` from the extracted cuDNN folder into your CUDA installation directory (usually `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x`).
+    -   **Important**: Ensure `zlibwapi.dll` is available in your PATH (required by cuDNN on Windows). Download it from [WinImage](http://www.winimage.com/zLibDll/index.html) and place the dll in `C:\Windows\System32` or your CUDA `bin` folder.
+
+### 3. Verify
+1.  Run AB-Maker.
+2.  Toggle the **🚀 GPU** switch in the UI.
+3.  Start a conversion.
+    -   Check the log. If you see `TTS Model initialized` without fallback warnings, you are on GPU!
+    -   If you see `Falling back to CPU`, double-check your PATH and ensure `zlibwapi.dll` and `cudnn64_*.dll` are accessible.
+
+---
+
 ## 🛠️ Usage
 
 1.  **Launch AB-Maker**.

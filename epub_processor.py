@@ -145,14 +145,28 @@ class EpubProcessor:
 
     def clean_text(self, html_content):
         """
-        Extracts raw text from HTML content.
+        Extracts raw text from HTML content, ensuring proper pauses for TTS.
         """
         soup = BeautifulSoup(html_content, 'html.parser')
-        # Add spaces between block elements to prevent words merging
+        
+        # Add pauses for line breaks
         for br in soup.find_all("br"):
-            br.replace_with(" ")
-        for p in soup.find_all("p"):
-            p.insert_after(" ")
+            br.replace_with(", ")
+            
+        # Ensure block elements end with punctuation to prevent run-on sentences
+        block_tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'div', 'blockquote']
+        for tag_name in block_tags:
+            for tag in soup.find_all(tag_name):
+                # Check if tag has text and ends with punctuation
+                text = tag.get_text()
+                if text and text.strip():
+                    last_char = text.strip()[-1]
+                    if last_char not in ".,!?;:":
+                        # Append a period to prompt a pause
+                        tag.append(". ")
+                
+                # Add spacing after the block
+                tag.insert_after(" ")
             
         text = soup.get_text()
         # Normalize whitespace

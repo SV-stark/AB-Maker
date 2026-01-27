@@ -58,6 +58,13 @@ class ConversionWorker:
             config = model_info.copy()
             config['model_dir'] = model_path
             config['provider'] = "cuda" if use_gpu else "cpu"
+            
+            # Check for espeak-ng-data - Critical for quality
+            espeak_path = os.path.join(model_path, "espeak-ng-data")
+            if not os.path.exists(espeak_path):
+                self.log("WARNING: 'espeak-ng-data' folder missing!")
+                self.log(">>> Audio quality/intonation will be poor.")
+                self.log(">>> Please delete and re-download the model.")
 
             if use_gpu:
                 self.log(f"Initializing TTS with GPU (CUDA)...")
