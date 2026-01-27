@@ -292,8 +292,8 @@ GNU Affero General Public License v3.0 - see [LICENSE](LICENSE) for details.
 ## 💬 Support
 
 For issues, feature requests, or questions:
-- 🐛 [GitHub Issues](https://github.com/your-username/AB-Maker/issues)
-- 📖 [Documentation Wiki](https://github.com/your-username/AB-Maker/wiki)
+- 🐛 [GitHub Issues](https://github.com/SV-stark/AB-Maker/issues)
+- 📖 [Documentation Wiki](https://github.com/SV-stark/AB-Maker/wiki)
 
 ---
 
