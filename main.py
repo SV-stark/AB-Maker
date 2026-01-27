@@ -3,6 +3,7 @@ import os
 import threading
 import time
 import logging
+import json # Added for config
 from model_manager import ModelManager
 from epub_processor import EpubProcessor
 from tts_engine import TTSEngine
@@ -15,7 +16,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def main(page: ft.Page):
     page.title = "AB-Maker: Audiobook Creator"
-    page.theme_mode = ft.ThemeMode.SYSTEM
+    
+    # Load Theme
+    config = {}
+    if os.path.exists("config.json"):
+        try:
+            with open("config.json", 'r') as f:
+                config = json.load(f)
+        except: pass
+    
+    theme_pref = config.get("theme_mode", "system")
+    if theme_pref == "dark":
+        page.theme_mode = ft.ThemeMode.DARK
+    elif theme_pref == "light":
+        page.theme_mode = ft.ThemeMode.LIGHT
+    else:
+        page.theme_mode = ft.ThemeMode.SYSTEM
+
     page.window_width = 900
     page.window_height = 800
     page.padding = 20
@@ -71,19 +88,44 @@ def main(page: ft.Page):
     chapters_cache = {} # Store chapters for editing: {path: [chapters]}
     
     # --- Phase 3: History & Theme ---
+    CONFIG_FILE = "config.json"
+
+    def load_config():
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+
+    def save_config(config):
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config, f)
+        except Exception as e:
+            log(f"Error saving config: {e}")
+
     def toggle_theme(e):
         page.theme_mode = ft.ThemeMode.DARK if page.theme_mode == ft.ThemeMode.LIGHT else ft.ThemeMode.LIGHT
         page.update()
+        # Save theme preference
+        config = load_config()
+        config['theme_mode'] = "dark" if page.theme_mode == ft.ThemeMode.DARK else "light"
+        save_config(config)
 
     def load_history():
-        return page.client_storage.get("recent_files") or []
+        config = load_config()
+        return config.get("recent_files", [])
 
     def save_history(path):
-        history = load_history()
+        config = load_config()
+        history = config.get("recent_files", [])
         if path in history:
             history.remove(path)
         history.insert(0, path)
-        page.client_storage.set("recent_files", history[:10])
+        config["recent_files"] = history[:10]
+        save_config(config)
         update_history_menu()
 
     def history_click(e):
@@ -107,7 +149,7 @@ def main(page: ft.Page):
             page.update()
 
     # --- Phase 3: Drag & Drop ---
-    def on_drop(e: ft.FilePickerResultEvent):
+    def on_drop(e):
         # flet DropEvent returns path in e.data usually, or e.files? 
         # Actually page.on_file_drop returns a FilePickerResultEvent-like object in recent flet versions or string?
         # Let's check docs or assume standard behavior: e.files
@@ -136,7 +178,7 @@ def main(page: ft.Page):
     page.appbar = ft.AppBar(
         title=ft.Text("AB-Maker"),
         center_title=False,
-        bgcolor=ft.Colors.SURFACE_VARIANT,
+        bgcolor=ft.Colors.GREY_200,
         actions=[
             history_menu,
             ft.IconButton(ft.Icons.DARK_MODE, on_click=toggle_theme, tooltip="Toggle Dark Mode"),
@@ -212,7 +254,7 @@ def main(page: ft.Page):
         confirm_dlg.open = True
         page.update()
 
-    def pick_file_result(e: ft.FilePickerResultEvent):
+    def pick_file_result(e):
         nonlocal selected_epubs
         if e.files:
             selected_epubs = [f.path for f in e.files]
@@ -222,7 +264,7 @@ def main(page: ft.Page):
             log(f"Selected {count} EPUBs.")
             save_history(selected_epubs[0]) # Save first one to history
 
-    def pick_folder_result(e: ft.FilePickerResultEvent):
+    def pick_folder_result(e):
         if e.path:
             custom_output_dir.current.value = e.path
             custom_output_dir.current.update()
@@ -652,7 +694,7 @@ def main(page: ft.Page):
                 border=ft.border.all(1, ft.Colors.OUTLINE),
                 border_radius=5,
                 padding=10,
-                bgcolor=ft.Colors.SURFACE_VARIANT
+                bgcolor=ft.Colors.GREY_100
             )
         ])
     )
