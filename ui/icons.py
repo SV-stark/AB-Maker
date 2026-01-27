@@ -40,9 +40,16 @@ def generate_icons():
         elif name == "play":
             draw.polygon([(6,5), (6,15), (16,10)], fill=color)
             
-        elif name == "gear": # settings/manage
-             draw.ellipse([3,3,17,17], outline=color, width=2)
-             draw.ellipse([7,7,13,13], fill=color)
+        elif name == "logo":
+            # Outer circle
+            draw.ellipse([0,0,19,19], fill="#3b82f6")
+            # Headphone band
+            draw.arc([4,4,15,15], start=180, end=0, fill="white", width=2)
+            # Book
+            draw.rectangle([7,8,13,16], fill="white")
+            # Earcups
+            draw.rectangle([3,11,5,15], fill="white")
+            draw.rectangle([14,11,16,15], fill="white")
 
         return ctk.CTkImage(img, size=(16, 16))
 
@@ -53,5 +60,6 @@ def generate_icons():
     icons['save'] = draw_icon('save', colors['blue'])
     icons['play'] = draw_icon('play', colors['blue'])
     icons['gear'] = draw_icon('gear', colors['gray'])
+    icons['logo'] = draw_icon('logo', colors['white'])
     
     return icons

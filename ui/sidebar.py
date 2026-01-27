@@ -11,7 +11,13 @@ class SidebarUI(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         
         # Logo / Title
-        ctk.CTkLabel(self, text="AB-Maker 🎧", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, padx=20, pady=(20, 10))
+        logo_frame = ctk.CTkFrame(self, fg_color="transparent")
+        logo_frame.grid(row=0, column=0, padx=20, pady=(20, 10))
+        
+        logo_icon = ctk.CTkLabel(logo_frame, text="", image=self.app.icons['logo'])
+        logo_icon.pack(side="left", padx=5)
+        
+        ctk.CTkLabel(logo_frame, text="AB-Maker", font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
         
         # Recent Files Label
         ctk.CTkLabel(self, text="Recent Files", text_color="gray", anchor="w").grid(row=1, column=0, padx=20, pady=(10, 0), sticky="w")
@@ -21,6 +27,20 @@ class SidebarUI(ctk.CTkFrame):
         self.recent_scroll.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
         self.recent_scroll.grid_columnconfigure(0, weight=1)
         
+        # About Button (Above Theme Switch)
+        self.about_btn = ctk.CTkButton(
+            self, 
+            text=" About AB-Maker", 
+            image=self.app.icons['logo'],
+            compound="left",
+            command=self.app.open_about,
+            fg_color="transparent",
+            text_color=("gray10", "gray90"),
+            hover_color=("gray85", "gray25"),
+            height=32
+        )
+        self.about_btn.grid(row=4, column=0, padx=20, pady=(10, 0), sticky="s")
+
         # Theme Toggle (Bottom)
         self.theme_switch = ctk.CTkSwitch(self, text="Dark Mode", command=self._toggle_theme)
         self.theme_switch.grid(row=5, column=0, padx=20, pady=20, sticky="s")

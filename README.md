@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="200" height="200" alt="AB-Maker Logo">
+</p>
+
 # AB-Maker 🎧📚
 
 **AB-Maker** is a professional-grade, offline desktop application for converting EPUB e-books into high-quality chapterized audiobooks. Built with privacy, performance, and user experience in mind, it leverages cutting-edge offline TTS technology to transform your reading list into an audio library—no cloud services required.

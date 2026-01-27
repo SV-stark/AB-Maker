@@ -24,6 +24,7 @@ from ui.voice_card import VoiceCardUI
 from ui.action_card import ActionCardUI
 from ui.dialogs.chapter_editor import ChapterEditorDialog
 from ui.dialogs.model_manager import ModelManagerDialog
+from ui.dialogs.about import AboutDialog
 
 class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def __init__(self, 
@@ -195,6 +196,9 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             
     def open_model_manager(self):
         ModelManagerDialog(self, self.model_manager, self.icons, self.refresh_model_list)
+        
+    def open_about(self):
+        AboutDialog(self, self.icons)
             
     def load_book(self, path):
         if os.path.exists(path):
