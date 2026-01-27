@@ -8,6 +8,7 @@ from epub_processor import EpubProcessor
 from tts_engine import TTSEngine
 from audio_builder import AudioBuilder
 import soundfile as sf
+import winsound
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,9 +54,9 @@ def main(page: ft.Page):
     model_dropdown = ft.Ref[ft.Dropdown]()
     gpu_switch = ft.Ref[ft.Switch]() # New GPU switch
     speed_slider = ft.Ref[ft.Slider]() # New speed slider
-    preview_audio = ft.Audio(autoplay=False) # Helper for preview
+    # preview_audio removed due to Flet version issue
     item_preview_path = None # Track temp file to clean up
-    page.overlay.append(preview_audio)
+    # page.overlay.append(preview_audio) removed
     
     output_format_radio = ft.Ref[ft.RadioGroup]()
     speaker_id_input = ft.Ref[ft.TextField]() # New for multi-speaker
@@ -284,11 +285,9 @@ def main(page: ft.Page):
                     sid = 0
                 
                 if tts_engine.generate_audio(text, temp_file, speed=speed, sid=sid):
-                    # Play
-                    preview_audio.src = temp_file
-                    preview_audio.update()
-                    preview_audio.play()
+                    # Play using winsound (Windows only)
                     log("Playing preview...")
+                    winsound.PlaySound(temp_file, winsound.SND_FILENAME | winsound.SND_ASYNC)
                 else:
                     log("Error generating preview.")
             except Exception as ex:
