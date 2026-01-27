@@ -26,10 +26,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Set appearance mode
 ctk.set_appearance_mode("system")
-if os.path.exists("theme.json"):
-    ctk.set_default_color_theme("theme.json")
-else:
-    ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("blue")
 
 
 class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
@@ -175,11 +172,19 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         v_row.pack(fill="x", padx=10, pady=5)
         
         # Model
+        # Model
         self.model_var = ctk.StringVar()
-        self.model_menu = ctk.CTkOptionMenu(v_row, variable=self.model_var, width=220, command=self._on_model_change)
+        
+        # Initialize model data here
+        models = self.model_manager.list_available_models()
+        self.model_data = {m['name']: m for m in models}
+        model_names = list(self.model_data.keys())
+        
+        self.model_menu = ctk.CTkOptionMenu(v_row, variable=self.model_var, values=model_names, width=220, command=self._on_model_change)
         self.model_menu.pack(side="left", padx=5)
         
-        # Refill models later in _load_settings
+        if model_names:
+            self.model_var.set(model_names[0])
         
         # Speaker ID
         ctk.CTkLabel(v_row, text="Speaker ID:").pack(side="left", padx=(15, 5))
