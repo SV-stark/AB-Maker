@@ -18,12 +18,16 @@ class ConversionWorker:
         self._thread = None
         self.logger = logging.getLogger(__name__)
 
-    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor):
-        """Starts the conversion process in a separate thread."""
+    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None):
+        """Starts the conversion process in a separate thread.
+        
+        Args:
+            custom_cover_path: Optional path to a custom cover image (overrides EPUB cover)
+        """
         self._cancel_event.clear()
         self._thread = threading.Thread(
             target=self._run_conversion,
-            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor),
+            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path),
             daemon=True
         )
         self._thread.start()
@@ -36,21 +40,15 @@ class ConversionWorker:
     def _is_cancelled(self):
         return self._cancel_event.is_set()
 
-    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor):
+    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None):
         try:
+            conversion_start_time = time.time()  # Track total conversion time
+            
             # 1. Initialize TTS Model
             self.update_status("Initializing TTS...", 0)
             
             # Setup config for TTS
-            from model_manager import ModelManager # Imported here to avoid circular dependency if any, though none currently
-            # Assuming model_info has paths relative to models_dir, we need absolute paths or correct relative ones
-            # For now passing the config as is, relying on tts_engine to handle valid paths if they are correct
-            # But tts_engine expects model_dir to be set.
-            
-            # We need to construct the model_dir path. 
-            # In main.py it was: os.path.join(model_manager.models_dir, model_info['extracted_dir'])
-            # We'll assume the caller (main UI) has pre-validated this or passed full paths.
-            # Actually, let's just do it here to be safe if model_info is raw from config.
+            from model_manager import ModelManager
             
             # Helper to get models dir (assuming standard layout)
             models_dir = os.path.join(os.getcwd(), "models") 
@@ -67,7 +65,7 @@ class ConversionWorker:
 
             if not self.tts_engine.initialize_model(config):
                 self.log("Error: Failed to initialize TTS engine.")
-                self.on_done() # Signal completion with error
+                self.on_done()
                 return
 
             total_books = len(selected_epubs)
@@ -77,6 +75,18 @@ class ConversionWorker:
                 
                 book_name = os.path.basename(epub_path)
                 self.log(f"Processing Book {b_idx+1}/{total_books}: {book_name}")
+                
+                # Extract book metadata (title, author, cover)
+                self.update_status(f"Extracting metadata from {book_name}...", 0)
+                book_metadata = epub_processor.extract_metadata(epub_path)
+                
+                # Use custom cover if provided, otherwise use extracted cover
+                cover_path = custom_cover_path if custom_cover_path else book_metadata.get('cover_path')
+                
+                if book_metadata.get('title'):
+                    self.log(f"Book: {book_metadata['title']} by {book_metadata.get('author', 'Unknown')}")
+                if cover_path:
+                    self.log(f"Cover: {os.path.basename(cover_path)}")
                 
                 # Parse Chapters
                 self.update_status(f"Parsing {book_name}...", 0)
@@ -95,6 +105,7 @@ class ConversionWorker:
                 
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
+
 
                 generated_files = []
                 total_chapters = len(chapters)
@@ -116,6 +127,7 @@ class ConversionWorker:
 
                 chapters_done = 0
                 progress_lock = threading.Lock()
+                start_time = time.time()  # Track start time for ETA
 
                 def process_chapter(idx, chapter):
                     if self._is_cancelled(): return None
@@ -154,10 +166,24 @@ class ConversionWorker:
                                 progress = chapters_done / total_chapters
                                 self.update_progress(progress)
                                 
+                                # Calculate ETA
+                                elapsed = time.time() - start_time
+                                if chapters_done > 0:
+                                    avg_per_chapter = elapsed / chapters_done
+                                    remaining_chapters = total_chapters - chapters_done
+                                    eta_seconds = int(avg_per_chapter * remaining_chapters)
+                                    
+                                    if eta_seconds >= 60:
+                                        eta_str = f"ETA: {eta_seconds // 60}m {eta_seconds % 60}s"
+                                    else:
+                                        eta_str = f"ETA: {eta_seconds}s"
+                                else:
+                                    eta_str = "ETA: Calculating..."
+                                
                                 ch_title = chapters[res_idx]['title']
-                                status_msg = f"Completed Ch {res_idx+1}: {ch_title[:20]}..."
+                                status_msg = f"Ch {chapters_done}/{total_chapters}: {ch_title[:20]}..."
                                 if res_skipped: status_msg += " (Cached)"
-                                self.update_status(status_msg, progress)
+                                self.update_status(status_msg, progress, eta_str)
                             
                             if res_path:
                                 chapters[res_idx]['duration'] = res_dur
@@ -187,35 +213,74 @@ class ConversionWorker:
                 elif generated_files:
                     if output_format == "mp3":
                         self.update_status("Converting to MP3...", 1.0)
-                        self.log("Converting WAVs to MP3...")
+                        self.log("Converting WAVs to MP3 with metadata...")
                         if not self.audio_builder.check_ffmpeg():
                             self.log("Error: FFmpeg not found, keeping WAV files.")
                         else:
-                            for wf in generated_files:
+                            total_tracks = len(generated_files)
+                            for track_idx, wf in enumerate(generated_files, 1):
                                 if self._is_cancelled(): break
                                 mp3_file = wf.replace(".wav", ".mp3")
-                                if self.audio_builder.convert_to_mp3(wf, mp3_file):
+                                
+                                # Get chapter title for this track
+                                ch_title = chapters[track_idx - 1]['title'] if track_idx <= len(chapters) else f"Chapter {track_idx}"
+                                
+                                # Prepare metadata for this MP3
+                                mp3_metadata = {
+                                    'title': book_metadata.get('title'),
+                                    'author': book_metadata.get('author'),
+                                    'chapter_title': ch_title
+                                }
+                                
+                                if self.audio_builder.convert_to_mp3(
+                                    wf, mp3_file, 
+                                    metadata=mp3_metadata, 
+                                    cover_path=cover_path,
+                                    track_num=track_idx,
+                                    total_tracks=total_tracks
+                                ):
                                     self.log(f"Created {os.path.basename(mp3_file)}")
-                                    # Optional: Delete WAV
-                                    # os.remove(wf) 
+                                    # Delete WAV file if conversion successful
+                                    try:
+                                        os.remove(wf)
+                                    except Exception as e:
+                                        self.logger.warning(f"Failed to delete {wf}: {e}")
 
                     elif output_format == "m4b":
                         self.update_status("Merging M4B...", 1.0)
-                        self.log("Merging chapters into M4B...")
+                        self.log("Merging chapters into M4B with metadata...")
                         m4b_path = os.path.join(os.path.dirname(output_dir), f"{base_name}.m4b")
                         metadata_path = os.path.join(output_dir, "metadata.txt")
                         
-                        # Re-verify durations if we skipped generation
-                        # (Actually we did that in loop, so `chapters` should have duration)
-                        
-                        if self.audio_builder.create_chapter_metadata(chapters, metadata_path):
-                            if self.audio_builder.merge_chapters_to_m4b(generated_files, m4b_path, metadata_path):
+                        # Create chapter metadata with book info
+                        if self.audio_builder.create_chapter_metadata(chapters, metadata_path, book_metadata):
+                            if self.audio_builder.merge_chapters_to_m4b(generated_files, m4b_path, metadata_path, cover_path):
                                 self.log(f"Success! M4B saved to: {m4b_path}")
+                                
+                                # Delete all WAV files after successful merge
+                                self.log("Cleaning up temporary WAV files...")
+                                for wf in generated_files:
+                                    try:
+                                        os.remove(wf)
+                                    except Exception as e:
+                                        self.logger.warning(f"Failed to delete {wf}: {e}")
+                                # Clean up metadata file
+                                try:
+                                    os.remove(metadata_path)
+                                except: pass
                             else:
                                 self.log("Error merging M4B (Check FFmpeg).")
                         else:
                             self.log("Error creating metadata.")
                 
+            # Log total time
+            total_elapsed = time.time() - conversion_start_time
+            if total_elapsed >= 60:
+                time_str = f"{int(total_elapsed // 60)}m {int(total_elapsed % 60)}s"
+            else:
+                time_str = f"{int(total_elapsed)}s"
+            self.log(f"Total conversion time: {time_str}")
+            
             self.on_done()
 
         except Exception as e:

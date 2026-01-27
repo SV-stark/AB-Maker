@@ -1,8 +1,10 @@
-flet
+customtkinter
 sherpa-onnx
 EbookLib
 beautifulsoup4
 soundfile
 requests
 numpy
-ffmpeg-python
+mutagen
+tkinterdnd2
+Pillow
