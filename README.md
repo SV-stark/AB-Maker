@@ -15,25 +15,31 @@
 - **🗣️ Offline Neural TTS**: Powered by **sherpa-onnx** VITS models. Runs entirely locally—zero API costs, zero tracking.
 - **⚡ GPU Acceleration**: Utilize your NVIDIA GPU (CUDA) for blazing-fast audiobook generation.
 - **⏩ Speed Control**: Adjustable speaking rate (0.5x to 2.5x).
-- **👥 Multi-Speaker Support**: Select specific speaker IDs for multi-voice models (e.g., LibriTTS).
+- **🔊 Audio Normalization**: Built-in **Loudness Normalization** (EBU R128) ensures consistent volume across chapters.
+- **🌍 Multi-Language Support**: Includes models for **English**, **Spanish**, **French**, and **German**, with support for more.
 
 ### 📖 Book Processing
 - **📂 Batch Processing**: Select multiple EPUB files at once for sequential conversion.
 - **⏯️ Smart Resume**: Automatically skips already-converted chapters if you restart a conversion.
-- **👁️ Chapter Editor**: View and rename chapters before conversion to ensure perfect metadata.
-- **📁 Custom Output**: Choose exactly where to save your generated audiobooks.
+- **🧠 Smart Text Processing**: Intelligently handles abbreviations (e.g., "Dr." → "Doctor") for natural flow.
+- **👁️ Chapter Editor**: View, rename, and verify chapters before conversion to ensure perfect metadata.
 
 ### 🎛️ Modern UI & Usability
-- **🌗 Dark Mode**: Toggle between Light and Dark themes for comfortable viewing.
+- **🌗 Custom Themes**: Toggle between Light and Dark themes or sync with system settings.
+- **📊 Enhanced Progress**: View detailed per-chapter status (Pending/Processing/Done) in real-time.
 - **🖱️ Drag & Drop**: Simply drag EPUB files onto the window to import them.
-- **🕒 History**: Quickly access your recently converted files.
+- **🕒 History Sidebar**: Quickly access your recently converted files.
 - **⏳ ETA**: Real-time estimation of audio duration and conversion time.
-- **🔈 Voice Preview**: Listen to a sample of the selected voice/speed before committing.
+- **🔈 Voice Preview**: Listen to a sample of the selected voice/speed instantly.
 
 ### 💾 Output Formats
-- **Chapterized M4B**: Single professional audiobook file with chapters (Best for Apple Books, Audible, etc.).
-- **Separate MP3s**: Space-saving, universally compatible files.
-- **Separate WAVs**: Lossless quality for archiving.
+- **Chapterized M4B**: Professional audiobook file with chapters & cover art (Best for Apple Books, Audible).
+- **MP3 / WAV**: Universal compatibility or lossless archiving.
+- **🎚️ Quality Presets**: 
+  - **Podcast** (Voice Optimized)
+  - **Audible** (Standard Spec)
+  - **Lossless** (High Fidelity)
+  - and more...
 
 ---
 
@@ -113,7 +119,7 @@ AB-Maker requires specific dynamic libraries to unlock the GPU:
 ## 🛠️ Usage
 
 1.  **Launch AB-Maker**.
-2.  **Import Book**: Drag & drop an EPUB or click **Pick EPUB(s)**.
+2.  **Import Book**: Drag & drop an EPUB or click **Browse**.
 3.  **Configure Voice**:
     - Select a model from the dropdown (auto-downloads if missing).
     - (Optional) Adjust **Speed** or **Speaker ID**.
@@ -121,10 +127,12 @@ AB-Maker requires specific dynamic libraries to unlock the GPU:
     - (Optional) Enable **GPU (CUDA)** switch for speed (requires CUDA drivers).
 4.  **Configure Output**:
     - Select Format: **M4B**, **MP3**, or **WAV**.
-    - (Optional) Click **View/Edit Chapters** to verify chapter names.
+    - Select **Quality**: choose from **Podcast**, **Audible**, **Medium**, etc.
+    - (Optional) Enable **Normalize** for consistent volume.
+    - (Optional) Click **List Icon** to verify chapter names.
     - (Optional) Select a **Output Folder**.
 5.  **Convert**: Click **Start Conversion**.
-    - *Tip: You can cancel at any time, and Smart Resume will pick up where you left off next time.*
+    - *Tip: Track per-chapter progress in the "Detailed Progress" list.*
 
 ---
 
