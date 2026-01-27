@@ -11,67 +11,57 @@ class ModelManager:
         if not os.path.exists(self.models_dir):
             os.makedirs(self.models_dir)
         self.logger = logging.getLogger(__name__)
+        
+        # Load models from JSON
+        self.models_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models.json")
+        self.models_catalog = self._load_models_catalog()
 
-    def delete_model(self, model_info):
-        """Deletes a model's directory."""
-        try:
-            path = os.path.join(self.models_dir, model_info['extracted_dir'])
-            if os.path.exists(path):
-                shutil.rmtree(path)
-                self.logger.info(f"Deleted model at {path}")
-                return True
-            return False
-        except Exception as e:
-            self.logger.error(f"Error deleting model: {e}")
-            return False
-
-    def list_available_models(self):
-        """
-        Returns a list of available models to download.
-        """
+    def _load_models_catalog(self):
+        """Loads models from models.json or returns defaults."""
+        import json
+        if os.path.exists(self.models_file):
+            try:
+                with open(self.models_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                self.logger.error(f"Failed to load models.json: {e}")
+        
+        # Fallback Defaults (if file missing or error)
         return [
             {
                 "name": "en_US-amy-low (Female)",
-                "language": "English",
+                "language": "English (US)",
                 "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-low.tar.bz2",
                 "type": "vits",
                 "archive_name": "vits-piper-en_US-amy-low.tar.bz2",
                 "extracted_dir": "vits-piper-en_US-amy-low",
                 "model_file": "en_US-amy-low.onnx",
                 "tokens_file": "tokens.txt",
-                "data_file": "en_US-amy-low.onnx.json" # some models use different configs
-            },
-            {
-                "name": "en_US-lessac-low (Female)",
-                "language": "English",
-                "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-low.tar.bz2",
-                "type": "vits",
-                "archive_name": "vits-piper-en_US-lessac-low.tar.bz2",
-                "extracted_dir": "vits-piper-en_US-lessac-low",
-                "model_file": "en_US-lessac-low.onnx",
-                "tokens_file": "tokens.txt"
+                "data_file": "en_US-amy-low.onnx.json",
+                "recommended": True
             },
             {
                 "name": "en_US-ryan-low (Male)",
-                "language": "English",
+                "language": "English (US)",
                 "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-low.tar.bz2",
                 "type": "vits",
                 "archive_name": "vits-piper-en_US-ryan-low.tar.bz2",
                 "extracted_dir": "vits-piper-en_US-ryan-low",
                 "model_file": "en_US-ryan-low.onnx",
-                "tokens_file": "tokens.txt"
-            },
-            {
-                "name": "en_US-libritts-vits (Expressive)",
-                "language": "English",
-                "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-libritts_r-medium.tar.bz2",
-                "type": "vits",
-                "archive_name": "vits-piper-en_US-libritts_r-medium.tar.bz2",
-                "extracted_dir": "vits-piper-en_US-libritts_r-medium",
-                "model_file": "en_US-libritts_r-medium.onnx",
-                "tokens_file": "tokens.txt"
+                "tokens_file": "tokens.txt",
+                "recommended": True
             }
         ]
+
+    def list_available_models(self, only_recommended=False):
+        """
+        Returns a list of available models to download.
+        Args:
+            only_recommended (bool): If True, filters list to only showing models marked 'recommended'.
+        """
+        if only_recommended:
+            return [m for m in self.models_catalog if m.get('recommended', False)]
+        return self.models_catalog
 
     def is_model_installed(self, model_info):
         """Checks if a model works and is installed"""

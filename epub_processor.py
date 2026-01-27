@@ -98,7 +98,7 @@ class EpubProcessor:
                 with open(cache_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"Cache check failed: {e}")
+            self.logger.warning(f"Cache check failed: {e}")
 
         try:
             book = epub.read_epub(epub_path)
@@ -169,3 +169,23 @@ class EpubProcessor:
             if found:
                 return found.get_text().strip()
         return None
+
+    def save_chapters(self, epub_path, chapters):
+        """
+        Saves the edited chapters back to the cache.
+        """
+        import hashlib
+        import json
+        
+        try:
+            mod_time = os.path.getmtime(epub_path)
+            file_hash = hashlib.md5(f"{epub_path}_{mod_time}".encode()).hexdigest()
+            cache_file = os.path.join(self.cache_dir, f"{file_hash}.json")
+            
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(chapters, f)
+            self.logger.info(f"Saved chapters to cache: {cache_file}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save chapters: {e}")
+            return False

@@ -1,0 +1,102 @@
+[
+    {
+        "name": "en_US-amy-low (Female)",
+        "language": "English (US)",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-en_US-amy-low.tar.bz2",
+        "extracted_dir": "vits-piper-en_US-amy-low",
+        "model_file": "en_US-amy-low.onnx",
+        "tokens_file": "tokens.txt",
+        "data_file": "en_US-amy-low.onnx.json",
+        "recommended": true
+    },
+    {
+        "name": "en_US-lessac-low (Female)",
+        "language": "English (US)",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-en_US-lessac-low.tar.bz2",
+        "extracted_dir": "vits-piper-en_US-lessac-low",
+        "model_file": "en_US-lessac-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": false
+    },
+    {
+        "name": "en_US-ryan-low (Male)",
+        "language": "English (US)",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-en_US-ryan-low.tar.bz2",
+        "extracted_dir": "vits-piper-en_US-ryan-low",
+        "model_file": "en_US-ryan-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": true
+    },
+    {
+        "name": "en_US-libritts-vits (Expressive)",
+        "language": "English (US)",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-libritts_r-medium.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-en_US-libritts_r-medium.tar.bz2",
+        "extracted_dir": "vits-piper-en_US-libritts_r-medium",
+        "model_file": "en_US-libritts_r-medium.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": true
+    },
+    {
+        "name": "en_GB-alan-low (Male)",
+        "language": "English (UK)",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alan-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-en_GB-alan-low.tar.bz2",
+        "extracted_dir": "vits-piper-en_GB-alan-low",
+        "model_file": "en_GB-alan-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": false
+    },
+    {
+        "name": "en_GB-southern_english_female-low",
+        "language": "English (UK)",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-southern_english_female-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-en_GB-southern_english_female-low.tar.bz2",
+        "extracted_dir": "vits-piper-en_GB-southern_english_female-low",
+        "model_file": "en_GB-southern_english_female-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": false
+    },
+    {
+        "name": "es_ES-sharvard-low (Male)",
+        "language": "Spanish",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-es_ES-sharvard-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-es_ES-sharvard-low.tar.bz2",
+        "extracted_dir": "vits-piper-es_ES-sharvard-low",
+        "model_file": "es_ES-sharvard-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": false
+    },
+    {
+        "name": "fr_FR-siwis-low (Female)",
+        "language": "French",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fr_FR-siwis-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-fr_FR-siwis-low.tar.bz2",
+        "extracted_dir": "vits-piper-fr_FR-siwis-low",
+        "model_file": "fr_FR-siwis-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": false
+    },
+    {
+        "name": "de_DE-thorsten-low (Male)",
+        "language": "German",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-de_DE-thorsten-low.tar.bz2",
+        "type": "vits",
+        "archive_name": "vits-piper-de_DE-thorsten-low.tar.bz2",
+        "extracted_dir": "vits-piper-de_DE-thorsten-low",
+        "model_file": "de_DE-thorsten-low.onnx",
+        "tokens_file": "tokens.txt",
+        "recommended": false
+    }
+]

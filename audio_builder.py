@@ -138,27 +138,34 @@ class AudioBuilder:
         """
         try:
             # Step 1: Convert WAV to MP3 with FFmpeg
+            # Step 1: Convert WAV to MP3 with FFmpeg
+            # Correct order: Inputs -> Map/Metadata -> Output Codec/Opts -> Output File
             cmd = [
                 self._get_ffmpeg_cmd(),
                 "-y",
-                "-i", wav_path,
-                "-codec:a", "libmp3lame",
-                "-qscale:a", "2",  # VBR quality 2 (~190kbps)
+                "-i", wav_path,      # Input 0
             ]
             
             # Embed cover art directly with FFmpeg if available
             if cover_path and os.path.exists(cover_path):
                 cmd.extend([
-                    "-i", cover_path,
-                    "-map", "0:a",
-                    "-map", "1:v",
+                    "-i", cover_path, # Input 1
+                    "-map", "0:a",    # Use audio from input 0
+                    "-map", "1:v",    # Use video from input 1
                     "-c:v", "mjpeg",
                     "-id3v2_version", "3",
                     "-metadata:s:v", "title=Album cover",
                     "-metadata:s:v", "comment=Cover (front)"
                 ])
+                
+            # Output audio options
+            cmd.extend([
+                "-codec:a", "libmp3lame",
+                "-qscale:a", "2",  # VBR quality 2 (~190kbps)
+            ])
             
             cmd.append(mp3_path)
+            # Capture stderr to show errors
             subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
             # Step 2: Add ID3 tags using mutagen
@@ -166,9 +173,12 @@ class AudioBuilder:
                 self._add_mp3_tags(mp3_path, metadata, cover_path, track_num, total_tracks)
             
             return True
+            
+        except subprocess.CalledProcessError as e:
+            err_msg = e.stderr.decode(errors='ignore') if e.stderr else "Unknown FFmpeg error"
+            raise RuntimeError(f"FFmpeg conversion failed: {err_msg}")
         except Exception as e:
-            self.logger.error(f"Error converting to MP3: {e}")
-            return False
+            raise RuntimeError(f"MP3 Conversion Error: {str(e)}")
 
     def _add_mp3_tags(self, mp3_path, metadata, cover_path=None, track_num=None, total_tracks=None):
         """Adds ID3 tags to MP3 file using mutagen."""

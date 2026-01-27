@@ -8,6 +8,8 @@ from tkinter import filedialog, messagebox
 import os
 import threading
 import logging
+import tempfile
+from PIL import Image, ImageDraw
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from model_manager import ModelManager
 from epub_processor import EpubProcessor
@@ -56,6 +58,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.current_worker = None
         self.chapters_cache = {}
         self.custom_cover_path = None  # User-selected custom cover image
+        self.icons = self._generate_icons()
         
         # Build UI
         self._create_widgets()
@@ -64,6 +67,61 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         # Handle close
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    def _generate_icons(self):
+        """Generates icons programmatically using Pillow."""
+        icons = {}
+        # Colors suitable for light/dark blue theme
+        colors = {"blue": "#3b82f6", "red": "#ef4444", "gray": "#64748b", "white": "#ffffff", "text": "#1e293b"}
+        
+        def draw_icon(name, color):
+            size = (20, 20)
+            img = Image.new("RGBA", size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            
+            if name == "folder":
+                draw.polygon([(2,18), (2,6), (9,6), (11,4), (18,4), (18,18)], fill=color)
+            
+            elif name == "image":
+                draw.rectangle([3,5,17,17], outline=color, width=2)
+                draw.ellipse([5,7,8,10], fill=color)
+                draw.polygon([(4,16), (8,12), (12,16)], fill=color)
+                draw.polygon([(10,16), (14,12), (17,16)], fill=color)
+
+            elif name == "list":
+                for y in [6, 10, 14]:
+                    draw.rectangle([4, y, 16, y+2], fill=color)
+                for y in [6, 10, 14]:
+                    draw.rectangle([2, y, 3, y+2], fill=color)
+
+            elif name == "trash":
+                draw.rectangle([6,6,14,17], fill=color) # bin
+                draw.line([(5,5), (15,5)], fill=color, width=2) # lid line
+                draw.rectangle([8,3,12,5], fill=color) # handle
+
+            elif name == "save":
+                draw.rectangle([4,4,16,16], fill=color)
+                draw.rectangle([6,4,14,8], fill="#ffffff") # metal clip
+                draw.rectangle([6,12,14,16], fill="#ffffff") # label
+
+            elif name == "play":
+                draw.polygon([(6,5), (6,15), (16,10)], fill=color)
+                
+            elif name == "gear": # settings/manage
+                 draw.ellipse([3,3,17,17], outline=color, width=2)
+                 draw.ellipse([7,7,13,13], fill=color)
+
+            return ctk.CTkImage(img, size=(16, 16))
+
+        icons['folder'] = draw_icon('folder', colors['blue'])
+        icons['image'] = draw_icon('image', colors['gray'])
+        icons['list'] = draw_icon('list', colors['gray'])
+        icons['trash'] = draw_icon('trash', colors['red'])
+        icons['save'] = draw_icon('save', colors['blue'])
+        icons['play'] = draw_icon('play', colors['blue'])
+        icons['gear'] = draw_icon('gear', colors['gray'])
+        
+        return icons
         
     def _on_drop(self, event):
         """Handle file drop event."""
@@ -138,29 +196,33 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         row1 = ctk.CTkFrame(self.book_card, fg_color="transparent")
         row1.pack(fill="x", padx=10, pady=5)
         
-        self.select_epub_btn = ctk.CTkButton(row1, text="📂 Select EPUB", command=self._select_files, width=140)
-        self.select_epub_btn.pack(side="left", padx=5)
-        
         self.file_label = ctk.CTkLabel(row1, text="Drag & Drop EPUB here...", text_color="gray")
         self.file_label.pack(side="left", padx=10, fill="x", expand=True)
+        # Select Files Button
+        self.select_files_btn = ctk.CTkButton(row1, text="Browse", image=self.icons['folder'], compound="left", command=self._select_files, width=100)
+        self.select_files_btn.pack(side="right", padx=10)
         
-        ctk.CTkButton(row1, text="📝 Edit Chapters", command=self._view_chapters, width=120, fg_color="transparent", border_width=1).pack(side="right", padx=5)
-        
-        # Row 2: Cover | Output
+        # Row 2: Cover & Chapters
         row2 = ctk.CTkFrame(self.book_card, fg_color="transparent")
-        row2.pack(fill="x", padx=10, pady=(5, 10))
-        
-        self.select_cover_btn = ctk.CTkButton(row2, text="🖼️ Custom Cover", command=self._select_cover, width=140, fg_color="transparent", border_width=1)
-        self.select_cover_btn.pack(side="left", padx=5)
+        row2.pack(fill="x", padx=10, pady=5)
         
         self.cover_label = ctk.CTkLabel(row2, text="Default Cover", text_color="gray")
-        self.cover_label.pack(side="left", padx=10)
+        self.cover_label.pack(side="left", padx=5)
         
-        self.clear_cover_btn = ctk.CTkButton(row2, text="❌", command=self._clear_cover, width=30, fg_color="transparent", text_color="red", hover_color="#fee2e2")
-        self.clear_cover_btn.pack(side="left")
+        # Chapter Edit and Cover Buttons
+        self.chapters_btn = ctk.CTkButton(row2, text="", image=self.icons['list'], width=30, command=self._view_chapters, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), hover_color=("gray90", "gray20"))
+        self.chapters_btn.pack(side="right", padx=2)
         
-        ctk.CTkButton(row2, text="📂 Output Folder", command=self._select_output, width=120, fg_color="transparent", border_width=1).pack(side="right", padx=5)
+        self.clear_cover_btn = ctk.CTkButton(row2, text="", image=self.icons['trash'], width=30, command=self._clear_cover, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), hover_color="#fee2e2")
+        self.clear_cover_btn.pack(side="right", padx=2)
+        
+        self.select_cover_btn = ctk.CTkButton(row2, text="", image=self.icons['image'], width=30, command=self._select_cover, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), hover_color=("gray90", "gray20"))
+        self.select_cover_btn.pack(side="right", padx=2)
+        
+        # Output Folder Button and Label (moved from original Row 2)
+        ctk.CTkButton(row2, text="Output Folder", image=self.icons['folder'], compound="left", command=self._select_output, width=120, fg_color="transparent", border_width=1).pack(side="right", padx=5)
         self.output_label = ctk.CTkLabel(row2, text="", text_color="gray") # Hidden by default until selected
+        self.output_label.pack(side="right", padx=5) # Pack it here to be next to the output folder button
         
         # CARD 2: Voice Strategy
         self.voice_card = ctk.CTkFrame(self.main_view)
@@ -174,17 +236,12 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # Model
         # Model
         self.model_var = ctk.StringVar()
-        
-        # Initialize model data here
-        models = self.model_manager.list_available_models()
-        self.model_data = {m['name']: m for m in models}
-        model_names = list(self.model_data.keys())
-        
-        self.model_menu = ctk.CTkOptionMenu(v_row, variable=self.model_var, values=model_names, width=220, command=self._on_model_change)
+        self.model_menu = ctk.CTkOptionMenu(v_row, variable=self.model_var, values=[], width=220, command=self._on_model_change)
         self.model_menu.pack(side="left", padx=5)
         
-        if model_names:
-            self.model_var.set(model_names[0])
+        # Preview Button
+        self.preview_btn = ctk.CTkButton(v_row, text="", image=self.icons['play'], width=30, command=self._preview_voice, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"))
+        self.preview_btn.pack(side="left", padx=2)
         
         # Speaker ID
         ctk.CTkLabel(v_row, text="Speaker ID:").pack(side="left", padx=(15, 5))
@@ -200,9 +257,20 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.speed_label = ctk.CTkLabel(v_row, text="1.0x", font=ctk.CTkFont(weight="bold"))
         self.speed_label.pack(side="left")
         
+        # Row 2: Options
+        v_row2 = ctk.CTkFrame(self.voice_card, fg_color="transparent")
+        v_row2.pack(fill="x", padx=10, pady=(0, 5))
+
         # GPU
         self.gpu_var = ctk.BooleanVar(value=False)
-        ctk.CTkSwitch(v_row, text="🚀 GPU", variable=self.gpu_var, command=self._on_gpu_change, width=80).pack(side="right", padx=10)
+        ctk.CTkSwitch(v_row2, text="🚀 GPU", variable=self.gpu_var, command=self._on_gpu_change, width=80).pack(side="right", padx=10)
+        
+        # Advanced Models and Manager
+        self.advanced_models_var = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(v_row2, text="Show All Models", variable=self.advanced_models_var, command=self._refresh_model_list, width=80).pack(side="right", padx=10)
+        
+        self.manage_models_btn = ctk.CTkButton(v_row2, text="Manage", image=self.icons['gear'], compound="left", width=80, height=24, command=self._open_model_manager, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"))
+        self.manage_models_btn.pack(side="right", padx=5)
 
         # CARD 3: Action & Progress
         self.action_card = ctk.CTkFrame(self.main_view)
@@ -244,6 +312,9 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.log_box = ctk.CTkTextbox(self.main_view, height=120, font=ctk.CTkFont(family="Consolas", size=11))
         self.log_box.pack(fill="both", expand=True)
         self.log_box.configure(state="disabled")
+
+        # Start initial load after UI is ready
+        self._refresh_model_list()
 
     def _toggle_theme(self):
         if self.theme_switch.get():
@@ -375,25 +446,61 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # Create popup
         popup = ctk.CTkToplevel(self)
         popup.title(f"Chapters: {os.path.basename(epub_path)}")
-        popup.geometry("500x400")
+        popup.geometry("600x500")
         popup.transient(self)
         popup.grab_set()
         
+        # Header
+        header = ctk.CTkFrame(popup, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(header, text=f"Edit Chapters ({len(chapters)})", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+        
         # Scrollable frame for chapters
         scroll = ctk.CTkScrollableFrame(popup)
-        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        scroll.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        entries = []
         
         for i, ch in enumerate(chapters):
-            row = ctk.CTkFrame(scroll, fg_color="transparent")
-            row.pack(fill="x", pady=2)
+            row = ctk.CTkFrame(scroll, fg_color=("gray95", "gray20"))
+            row.pack(fill="x", pady=2, padx=2)
             
-            ctk.CTkLabel(row, text=f"{i+1}.", width=30).pack(side="left")
-            entry = ctk.CTkEntry(row, width=350)
+            ctk.CTkLabel(row, text=f"{i+1}.", width=30).pack(side="left", padx=5)
+            
+            entry = ctk.CTkEntry(row)
             entry.insert(0, ch['title'])
-            entry.pack(side="left", padx=5)
-            ctk.CTkLabel(row, text=f"{len(ch['content'])} chars", text_color="gray").pack(side="left")
+            entry.pack(side="left", fill="x", expand=True, padx=5, pady=2)
+            entries.append(entry)
+            
+            char_count = len(ch['content'])
+            ctk.CTkLabel(row, text=f"{char_count} chars", text_color="gray", width=80).pack(side="right", padx=5)
         
-        ctk.CTkButton(popup, text="Close", command=popup.destroy).pack(pady=10)
+        # Actions
+        actions = ctk.CTkFrame(popup, fg_color="transparent")
+        actions.pack(fill="x", padx=10, pady=10)
+        
+        def save_changes():
+            new_titles = [e.get() for e in entries]
+            for i, title in enumerate(new_titles):
+                chapters[i]['title'] = title
+            
+            # Save to disk cache
+            if self.epub_processor.save_chapters(epub_path, chapters):
+                messagebox.showinfo("Success", "Chapter titles saved!")
+                popup.destroy()
+            else:
+                messagebox.showerror("Error", "Failed to save changes.")
+
+        def reset_chapters():
+            if messagebox.askyesno("Reset", "Reload from EPUB? This will discard changes."):
+                if epub_path in self.chapters_cache:
+                    del self.chapters_cache[epub_path]
+                popup.destroy()
+                self._view_chapters()
+
+        ctk.CTkButton(actions, text="Save Changes", image=self.icons['save'], compound="left", command=save_changes).pack(side="right", padx=5)
+        ctk.CTkButton(actions, text="Reset", command=reset_chapters, fg_color="transparent", border_width=1, text_color=("gray10", "gray90")).pack(side="right", padx=5)
+        ctk.CTkButton(actions, text="Close", command=popup.destroy, fg_color="transparent", text_color="gray").pack(side="left", padx=5)
     
     def _on_speed_change(self, value):
         self.speed_label.configure(text=f"{value:.1f}x")
@@ -401,6 +508,26 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
     
     def _on_gpu_change(self):
         self.config_mgr.set("use_gpu", self.gpu_var.get())
+        
+    def _refresh_model_list(self):
+        """Refresh the model dropdown based on the advanced toggle."""
+        show_all = self.advanced_models_var.get()
+        models = self.model_manager.list_available_models(only_recommended=not show_all)
+        
+        self.model_data = {m['name']: m for m in models}
+        model_names = list(self.model_data.keys())
+        
+        # Update dropdown values
+        self.model_menu.configure(values=model_names)
+        
+        # Reset selection if current not in list (or empty)
+        current = self.model_var.get()
+        if not current or current not in model_names:
+            if model_names:
+                self.model_var.set(model_names[0])
+                self._on_model_change(model_names[0])
+            else:
+                self.model_var.set("")
     
     def _on_model_change(self, value):
         self.config_mgr.set("last_model", value)
@@ -408,6 +535,78 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if model_info and not self.model_manager.is_model_installed(model_info):
             self._log(f"NOTE: Model {value} needs to be downloaded.")
     
+    def _open_model_manager(self):
+        """Show model manager dialog."""
+        popup = ctk.CTkToplevel(self)
+        popup.title("Model Manager")
+        popup.geometry("500x400")
+        popup.transient(self)
+        popup.grab_set()
+        
+        ctk.CTkLabel(popup, text="Installed Models", font=ctk.CTkFont(size=14, weight="bold")).pack(pady=10)
+        
+        scroll = ctk.CTkScrollableFrame(popup)
+        scroll.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Helper to get size
+        def get_size(path):
+            total_size = 0
+            for dirpath, dirnames, filenames in os.walk(path):
+                for f in filenames:
+                    fp = os.path.join(dirpath, f)
+                    total_size += os.path.getsize(fp)
+            return total_size / (1024 * 1024) # MB
+
+        installed_found = False
+        models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+        
+        # Refresh logic inside popup
+        def refresh_popup():
+            for w in scroll.winfo_children(): w.destroy()
+            populate()
+
+        def populate():
+            nonlocal installed_found
+            all_models = self.model_manager.list_available_models(only_recommended=False)
+            installed_found = False
+            
+            for m in all_models:
+                m_path = os.path.join(models_dir, m['extracted_dir'])
+                if os.path.exists(m_path):
+                    installed_found = True
+                    row = ctk.CTkFrame(scroll, fg_color=("gray95", "gray20"))
+                    row.pack(fill="x", pady=2, padx=2)
+                    
+                    # Icon + Name
+                    ctk.CTkLabel(row, text="📦", font=ctk.CTkFont(size=16)).pack(side="left", padx=5)
+                    
+                    info_frame = ctk.CTkFrame(row, fg_color="transparent")
+                    info_frame.pack(side="left", fill="x", expand=True)
+                    ctk.CTkLabel(info_frame, text=m['name'], font=ctk.CTkFont(weight="bold")).pack(anchor="w")
+                    
+                    size_mb = get_size(m_path)
+                    ctk.CTkLabel(info_frame, text=f"{size_mb:.1f} MB  •  {m.get('language', 'en')}", text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w")
+                    
+                    # Delete Action
+                    def delete_m(model=m):
+                        if messagebox.askyesno("Delete", f"Delete model '{model['name']}'?"):
+                            try:
+                                import shutil
+                                shutil.rmtree(os.path.join(models_dir, model['extracted_dir']))
+                                refresh_popup()
+                                self._refresh_model_list()
+                            except Exception as e:
+                                messagebox.showerror("Error", f"Failed to delete: {e}")
+
+                    ctk.CTkButton(row, text="", image=self.icons['trash'], width=30, height=30, command=delete_m, fg_color="transparent", hover_color="#fee2e2").pack(side="right", padx=5)
+
+            if not installed_found:
+                ctk.CTkLabel(scroll, text="No models installed.", text_color="gray").pack(pady=20)
+
+        populate()
+        
+        ctk.CTkButton(popup, text="Close", command=popup.destroy).pack(pady=10)
+
     def _on_worker_log(self, msg):
         self.after(0, lambda: self._log(msg))
     
@@ -439,6 +638,70 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.eta_label.configure(text="")
         self._log("Process finished.")
     
+    def _preview_voice(self):
+        """Generates and plays a short audio sample."""
+        model_name = self.model_var.get()
+        model_info = self.model_data.get(model_name)
+        
+        if not model_info: return
+        
+        if not self.model_manager.is_model_installed(model_info):
+            messagebox.showinfo("Preview", "Please download the model first (Start Conversion will prompt download).")
+            return
+
+        self.preview_btn.configure(state="disabled")
+        self.status_label.configure(text="Generating preview...")
+        
+        def run_preview():
+            try:
+                # Create temp file
+                fd, temp_path = tempfile.mkstemp(suffix=".wav")
+                os.close(fd)
+                
+                text = "This is a preview of the selected voice."
+                speed = self.speed_var.get()
+                sid = int(self.speaker_entry.get())
+                
+                # Config for TTS
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                models_dir = os.path.join(base_dir, "models")
+                model_path = os.path.join(models_dir, model_info['extracted_dir'])
+                
+                config = model_info.copy()
+                config['model_dir'] = model_path
+                config['provider'] = "cuda" if self.gpu_var.get() else "cpu"
+
+                # Init temp TTS just for preview (inefficient but safe) or reuse?
+                # Reusing self.tts_engine is better but need to ensure it's not busy.
+                # simpler to just init on the fly or check if initialized.
+                # For now, let's try to use the engine if possible, or re-init.
+                # The engine class handles re-init if config changes usually.
+                
+                if self.tts_engine.initialize_model(config):
+                    if self.tts_engine.generate_audio(text, temp_path, speed=speed, sid=sid):
+                        # Play
+                        if winsound:
+                            winsound.PlaySound(temp_path, winsound.SND_FILENAME)
+                        
+                        self.after(0, lambda: self.status_label.configure(text="Preview playing..."))
+                    else:
+                        self.after(0, lambda: messagebox.showerror("Error", "Failed to generate preview audio."))
+                else:
+                    self.after(0, lambda: messagebox.showerror("Error", "Failed to initialize TTS for preview."))
+                    
+                # Cleanup
+                try:
+                    os.remove(temp_path)
+                except: pass
+                
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Error", f"Preview failed: {e}"))
+            finally:
+                self.after(0, lambda: self.preview_btn.configure(state="normal"))
+                self.after(0, lambda: self.status_label.configure(text="Ready"))
+
+        threading.Thread(target=run_preview, daemon=True).start()
+
     def _start_conversion(self):
         if not self.selected_epubs:
             messagebox.showwarning("No File", "Please select EPUB file(s) first.")
@@ -449,61 +712,68 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if not model_info:
             messagebox.showerror("Error", "Please select a valid model.")
             return
-        
-        # Download model if needed
-        if not self.model_manager.is_model_installed(model_info):
-            self._log(f"Downloading {model_name}...")
-            self.status_label.configure(text="Downloading Model...")
-            self.update()  # Force UI update
             
-            last_logged_pct = [0]  # Use list for mutable closure
-            
-            def dl_progress(current, total):
-                if total > 0:
-                    pct = int((current / total) * 100)
-                    self._on_worker_progress(current / total)
-                    
-                    # Log every 10%
-                    if pct >= last_logged_pct[0] + 10:
-                        last_logged_pct[0] = pct
-                        mb_current = current / (1024 * 1024)
-                        mb_total = total / (1024 * 1024)
-                        self.after(0, lambda: self._log(f"  Download: {mb_current:.1f} MB / {mb_total:.1f} MB ({pct}%)"))
-            
-            if not self.model_manager.download_model(model_info, dl_progress):
-                messagebox.showerror("Error", "Model download failed!")
-                return
-            self._log("Download complete. Extracting...")
-        
-        # Setup UI
+        # UI Setup
         self.start_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         
         # Save format preference
         self.config_mgr.set("output_format", self.format_var.get())
         self.config_mgr.set("last_speaker_id", self.speaker_entry.get())
-        
-        # Create and start worker
-        worker = ConversionWorker(
-            self.tts_engine, self.audio_builder,
-            log_callback=self._on_worker_log,
-            progress_callback=self._on_worker_progress,
-            status_callback=self._on_worker_status,
-            done_callback=self._on_worker_done
-        )
-        self.current_worker = worker
-        
-        worker.start(
-            selected_epubs=self.selected_epubs,
-            model_info=model_info,
-            output_dir_root=self.output_dir or os.path.dirname(self.selected_epubs[0]),
-            speed=self.speed_var.get(),
-            speaker_id=self.speaker_entry.get(),
-            output_format=self.format_var.get(),
-            use_gpu=self.gpu_var.get(),
-            epub_processor=self.epub_processor,
-            custom_cover_path=self.custom_cover_path
-        )
+
+        def run_async_start():
+            # Download model if needed
+            if not self.model_manager.is_model_installed(model_info):
+                self.after(0, lambda: self._log(f"Downloading {model_name}..."))
+                self.after(0, lambda: self.status_label.configure(text="Downloading Model..."))
+                
+                last_logged_pct = [0]
+                
+                def dl_progress(current, total):
+                    if total > 0:
+                        pct = int((current / total) * 100)
+                        self._on_worker_progress(current / total)
+                        
+                        if pct >= last_logged_pct[0] + 10:
+                            last_logged_pct[0] = pct
+                            mb_current = current / (1024 * 1024)
+                            mb_total = total / (1024 * 1024)
+                            self.after(0, lambda: self._log(f"  Download: {mb_current:.1f} MB / {mb_total:.1f} MB ({pct}%)"))
+                
+                success = self.model_manager.download_model(model_info, dl_progress)
+                if not success:
+                    self.after(0, lambda: messagebox.showerror("Error", "Model download failed!"))
+                    self.after(0, self._reset_ui)
+                    return
+                
+                self.after(0, lambda: self._log("Download complete. Extracting..."))
+            
+            # Start conversion worker
+            worker = ConversionWorker(
+                self.tts_engine, self.audio_builder,
+                log_callback=self._on_worker_log,
+                progress_callback=self._on_worker_progress,
+                status_callback=self._on_worker_status,
+                done_callback=self._on_worker_done
+            )
+            self.current_worker = worker
+            
+            # Note: worker.start() actually starts another thread, so we can call it from here.
+            # However, since we are already in a thread, we could potentially just run it directly if we changed worker. 
+            # But adapting worker.start() is fine.
+            worker.start(
+                selected_epubs=self.selected_epubs,
+                model_info=model_info,
+                output_dir_root=self.output_dir or os.path.dirname(self.selected_epubs[0]),
+                speed=self.speed_var.get(),
+                speaker_id=self.speaker_entry.get(),
+                output_format=self.format_var.get(),
+                use_gpu=self.gpu_var.get(),
+                epub_processor=self.epub_processor,
+                custom_cover_path=self.custom_cover_path
+            )
+
+        threading.Thread(target=run_async_start, daemon=True).start()
     
     def _cancel_conversion(self):
         if self.current_worker:

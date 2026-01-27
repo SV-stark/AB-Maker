@@ -50,8 +50,9 @@ class ConversionWorker:
             # Setup config for TTS
             from model_manager import ModelManager
             
-            # Helper to get models dir (assuming standard layout)
-            models_dir = os.path.join(os.getcwd(), "models") 
+            # Helper to get models dir relative to this script
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            models_dir = os.path.join(base_dir, "models") 
             model_path = os.path.join(models_dir, model_info['extracted_dir'])
             
             config = model_info.copy()
@@ -232,19 +233,22 @@ class ConversionWorker:
                                     'chapter_title': ch_title
                                 }
                                 
-                                if self.audio_builder.convert_to_mp3(
-                                    wf, mp3_file, 
-                                    metadata=mp3_metadata, 
-                                    cover_path=cover_path,
-                                    track_num=track_idx,
-                                    total_tracks=total_tracks
-                                ):
-                                    self.log(f"Created {os.path.basename(mp3_file)}")
-                                    # Delete WAV file if conversion successful
-                                    try:
-                                        os.remove(wf)
-                                    except Exception as e:
-                                        self.logger.warning(f"Failed to delete {wf}: {e}")
+                                try:
+                                    if self.audio_builder.convert_to_mp3(
+                                        wf, mp3_file, 
+                                        metadata=mp3_metadata, 
+                                        cover_path=cover_path,
+                                        track_num=track_idx,
+                                        total_tracks=total_tracks
+                                    ):
+                                        self.log(f"Created {os.path.basename(mp3_file)}")
+                                        # Delete WAV file if conversion successful
+                                        try:
+                                            os.remove(wf)
+                                        except Exception as e:
+                                            self.logger.warning(f"Failed to delete {wf}: {e}")
+                                except Exception as conv_err:
+                                    self.log(f"Error converting chapter {track_idx}: {conv_err}")
 
                     elif output_format == "m4b":
                         self.update_status("Merging M4B...", 1.0)
