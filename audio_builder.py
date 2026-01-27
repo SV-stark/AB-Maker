@@ -10,6 +10,14 @@ class AudioBuilder:
         # Assume ffmpeg is in PATH
         return "ffmpeg"
 
+    def check_ffmpeg(self):
+        """Checks if FFmpeg is available."""
+        try:
+            subprocess.run([self._get_ffmpeg_cmd(), "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
     def create_chapter_metadata(self, chapters, output_metadata_file):
         """
         Creates FFmpeg metadata file format:
@@ -55,7 +63,10 @@ class AudioBuilder:
             with open(concat_list_path, 'w', encoding='utf-8') as f:
                 for file_path in chapter_files:
                     # Escape paths for ffmpeg concat demuxer
-                    safe_path = file_path.replace("'", "'\\''")
+                    # Use forward slashes for cross-platform compatibility
+                    safe_path = file_path.replace('\\', '/')
+                    # Escape single quotes and allow for spaces
+                    safe_path = safe_path.replace("'", "'\\''")
                     f.write(f"file '{safe_path}'\n")
 
             cmd = [
@@ -89,4 +100,21 @@ class AudioBuilder:
             return False
         except Exception as e:
             self.logger.error(f"Error during merge: {e}")
+            return False
+
+    def convert_to_mp3(self, wav_path, mp3_path):
+        """Converts WAV to MP3 using FFmpeg."""
+        try:
+            cmd = [
+                self._get_ffmpeg_cmd(),
+                "-y",
+                "-i", wav_path,
+                "-codec:a", "libmp3lame",
+                "-qscale:a", "2", # VBR quality 2 (~190kbps)
+                mp3_path
+            ]
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return True
+        except Exception as e:
+            self.logger.error(f"Error converting to MP3: {e}")
             return False

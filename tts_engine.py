@@ -17,6 +17,7 @@ class TTSEngine:
         try:
             # Helper to safely join paths if they are relative
             model_dir = model_config.get("model_dir", "")
+            provider = model_config.get("provider", "cpu")
             
             vits_config = sherpa_onnx.OfflineTtsVitsModelConfig(
                 model=os.path.join(model_dir, model_config["model_file"]),
@@ -28,11 +29,20 @@ class TTSEngine:
                 length_scale=1.0,
             )
             
+            # Configure model with provider (cpu/cuda)
+            model_config_args = {
+                "vits": vits_config,
+                "num_threads": 1,
+                "debug": 0,
+                "provider": provider
+            }
+            
             tts_config = sherpa_onnx.OfflineTtsConfig(
-                model=sherpa_onnx.OfflineTtsModelConfig(vits=vits_config),
+                model=sherpa_onnx.OfflineTtsModelConfig(**model_config_args),
                 rule_fsts="",
                 max_num_sentences=1,
             )
+
             
             if not sherpa_onnx.OfflineTts.validate_config(tts_config):
                 self.logger.error("Invalid TTS config")

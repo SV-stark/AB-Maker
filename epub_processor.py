@@ -23,17 +23,22 @@ class EpubProcessor:
                 if item_obj:
                     # Some items in spine might not be text documents
                     if item_obj.get_type() == ebooklib.ITEM_DOCUMENT:
-                        content = item_obj.get_content()
-                        text = self.clean_text(content)
-                        
-                        # Only add if there is meaningful text
-                        if text.strip():
-                            # Try to find a title from the content or use a default
-                            title = self.extract_title(content) or f"Chapter {len(chapters) + 1}"
-                            chapters.append({
-                                'title': title,
-                                'content': text
-                            })
+                        try:
+                            content = item_obj.get_content()
+                            text = self.clean_text(content)
+                            
+                            # Only add if there is meaningful text
+                            if text.strip():
+                                # Try to find a title from the content or use a default
+                                title = self.extract_title(content) or f"Chapter {len(chapters) + 1}"
+                                chapters.append({
+                                    'title': title,
+                                    'content': text
+                                })
+                        except Exception as chap_err:
+                            print(f"Warning: Failed to process chapter {id_ref}: {chap_err}")
+                            continue
+
             return chapters
         except Exception as e:
             print(f"Error processing EPUB: {e}")

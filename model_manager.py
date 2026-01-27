@@ -12,6 +12,19 @@ class ModelManager:
             os.makedirs(self.models_dir)
         self.logger = logging.getLogger(__name__)
 
+    def delete_model(self, model_info):
+        """Deletes a model's directory."""
+        try:
+            path = os.path.join(self.models_dir, model_info['extracted_dir'])
+            if os.path.exists(path):
+                shutil.rmtree(path)
+                self.logger.info(f"Deleted model at {path}")
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Error deleting model: {e}")
+            return False
+
     def list_available_models(self):
         """
         Returns a list of available models to download.
@@ -77,6 +90,7 @@ class ModelManager:
             self.logger.info(f"Downloading {model_info['name']}...")
             try:
                 response = requests.get(url, stream=True)
+                response.raise_for_status()
                 total_size = int(response.headers.get('content-length', 0))
                 downloaded = 0
 
