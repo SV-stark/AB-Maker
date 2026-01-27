@@ -19,11 +19,16 @@ class TTSEngine:
             model_dir = model_config.get("model_dir", "")
             provider = model_config.get("provider", "cpu")
             
+            # Check for espeak-ng-data folder
+            data_dir_path = os.path.join(model_dir, "espeak-ng-data")
+            if not os.path.exists(data_dir_path):
+                data_dir_path = ""  # Fall back to empty if not present
+            
             vits_config = sherpa_onnx.OfflineTtsVitsModelConfig(
                 model=os.path.join(model_dir, model_config["model_file"]),
                 lexicon="",
                 tokens=os.path.join(model_dir, model_config["tokens_file"]),
-                data_dir="",
+                data_dir=data_dir_path,
                 noise_scale=0.667,
                 noise_scale_w=0.8,
                 length_scale=1.0,
@@ -43,11 +48,7 @@ class TTSEngine:
                 max_num_sentences=1,
             )
 
-            
-            if not sherpa_onnx.OfflineTts.validate_config(tts_config):
-                self.logger.error("Invalid TTS config")
-                return False
-                
+            # Create TTS instance (will fail if config is invalid)
             self.tts = sherpa_onnx.OfflineTts(tts_config)
             self.sample_rate = self.tts.sample_rate
             self.logger.info(f"TTS Model initialized. Sample rate: {self.sample_rate}")

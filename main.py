@@ -155,8 +155,8 @@ class ABMakerApp(ctk.CTk):
         self.start_btn = ctk.CTkButton(btn_row, text="Start Conversion", command=self._start_conversion, height=40, font=ctk.CTkFont(size=14, weight="bold"))
         self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 10))
         
-        self.cancel_btn = ctk.CTkButton(btn_row, text="Cancel", command=self._cancel_conversion, height=40, state="disabled", fg_color="gray")
-        self.cancel_btn.pack(side="left", width=100)
+        self.cancel_btn = ctk.CTkButton(btn_row, text="Cancel", command=self._cancel_conversion, height=40, width=100, state="disabled", fg_color="gray")
+        self.cancel_btn.pack(side="left")
         
         # Progress bar
         self.progress = ctk.CTkProgressBar(self.action_frame)
@@ -313,15 +313,26 @@ class ABMakerApp(ctk.CTk):
         if not self.model_manager.is_model_installed(model_info):
             self._log(f"Downloading {model_name}...")
             self.status_label.configure(text="Downloading Model...")
+            self.update()  # Force UI update
+            
+            last_logged_pct = [0]  # Use list for mutable closure
             
             def dl_progress(current, total):
                 if total > 0:
+                    pct = int((current / total) * 100)
                     self._on_worker_progress(current / total)
+                    
+                    # Log every 10%
+                    if pct >= last_logged_pct[0] + 10:
+                        last_logged_pct[0] = pct
+                        mb_current = current / (1024 * 1024)
+                        mb_total = total / (1024 * 1024)
+                        self.after(0, lambda: self._log(f"  Download: {mb_current:.1f} MB / {mb_total:.1f} MB ({pct}%)"))
             
             if not self.model_manager.download_model(model_info, dl_progress):
                 messagebox.showerror("Error", "Model download failed!")
                 return
-            self._log("Download complete.")
+            self._log("Download complete. Extracting...")
         
         # Setup UI
         self.start_btn.configure(state="disabled")
