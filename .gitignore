@@ -38,3 +38,5 @@ diagnose_filepicker.py
 tests/test_flet_compatibility.py
 inspect_filepicker.py
 fixes.md
+COMPLETION_REPORT.txt
+ARCHITECTURE_IMPROVEMENTS.md
