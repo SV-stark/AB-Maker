@@ -1,7 +1,8 @@
 """
 Audio Service
 Handles audio-related operations including playback and format support
-"""from typing import Optional, Callable, Any
+"""
+from typing import Optional, Callable, Any
 from pathlib import Path
 import tempfile
 import os

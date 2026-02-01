@@ -99,7 +99,11 @@ class ConfigManager:
             "use_gpu": False,
             "last_model": None,
             "output_format": "m4b",
-            "last_quality": "Medium"
+            "last_quality": "Medium",
+            "pause_sentence": 700,
+            "pause_clause": 250,
+            "pause_paragraph": 1500,
+            "pause_dialogue": 400
         }
 
     def save(self):

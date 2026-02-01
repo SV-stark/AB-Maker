@@ -21,7 +21,7 @@ class ConversionWorker:
         self._thread = None
         self.logger = logging.getLogger(__name__)
 
-    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None, normalize=False):
+    def start(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None, normalize=False, pause_settings=None, character_voices=None):
         """Starts the conversion process in a separate thread.
         
         Args:
@@ -29,11 +29,13 @@ class ConversionWorker:
             quality: Audio quality preset (Low, Medium, High, Lossless)
             models_dir: Directory where models are stored
             normalize: Apply audio normalization
+            pause_settings: Optional dict with pause durations in ms (sentence, clause, paragraph, dialogue)
+            character_voices: Optional dict mapping character names to voice IDs
         """
         self._cancel_event.clear()
         self._thread = threading.Thread(
             target=self._run_conversion,
-            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path, quality, models_dir, normalize),
+            args=(selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path, quality, models_dir, normalize, pause_settings, character_voices),
             daemon=True
         )
         self._thread.start()
@@ -46,9 +48,22 @@ class ConversionWorker:
     def _is_cancelled(self):
         return self._cancel_event.is_set()
 
-    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None, normalize=False):
+    def _run_conversion(self, selected_epubs, model_info, output_dir_root, speed, speaker_id, output_format, use_gpu, epub_processor, custom_cover_path=None, quality="Medium", models_dir=None, normalize=False, pause_settings=None, character_voices=None):
         try:
             conversion_start_time = time.time()  # Track total conversion time
+            
+            # Load pause settings with defaults
+            if pause_settings is None:
+                pause_settings = {
+                    'sentence_pause_ms': 700,
+                    'clause_pause_ms': 250,
+                    'paragraph_pause_ms': 1500,
+                    'dialogue_pause_ms': 400
+                }
+            
+            # Log multi-voice mode if active
+            if character_voices and len(character_voices) > 1:
+                self.log(f"Multi-voice mode: {len(character_voices)} characters mapped to voices")
             
             # 1. Initialize TTS Model
             self.update_status("Initializing TTS...", 0)
@@ -113,6 +128,18 @@ class ConversionWorker:
                     self.log(f"Warning: No chapters found in {book_name}")
                     continue
                 
+                # Filter out unselected chapters
+                original_count = len(chapters)
+                chapters = [ch for ch in chapters if ch.get('selected', True)]
+                filtered_count = len(chapters)
+                
+                if filtered_count < original_count:
+                    self.log(f"  {original_count - filtered_count} chapters deselected, converting {filtered_count} chapters")
+                
+                if not chapters:
+                    self.log(f"Warning: No chapters selected for conversion in {book_name}")
+                    continue
+                
                 # Update UI List
                 if self.init_list:
                     self.init_list(chapters)
@@ -174,7 +201,15 @@ class ConversionWorker:
                     self.update_status("", chapter_idx=idx, chapter_status="processing")
                     
                     try:
-                        if self.tts_engine.generate_audio(chapter['content'], c_filepath, speed=speed, sid=int(speaker_id)):
+                        if self.tts_engine.generate_audio(
+                            chapter['content'], c_filepath, 
+                            speed=speed, sid=int(speaker_id),
+                            sentence_pause_ms=pause_settings['sentence_pause_ms'],
+                            clause_pause_ms=pause_settings['clause_pause_ms'],
+                            paragraph_pause_ms=pause_settings['paragraph_pause_ms'],
+                            dialogue_pause_ms=pause_settings['dialogue_pause_ms'],
+                            character_voices=character_voices
+                        ):
                              info = sf.info(c_filepath)
                              return idx, c_filepath, info.duration, False # Generated
                         else:
@@ -315,6 +350,43 @@ class ConversionWorker:
                                 self.log("Error merging M4B (Check FFmpeg).")
                         else:
                             self.log("Error creating metadata.")
+                    
+                    elif output_format == "wav":
+                        self.update_status("Creating WAV metadata...", 1.0)
+                        self.log("Keeping original WAV files...")
+                        
+                        # Create metadata JSON for WAV files
+                        import json
+                        metadata_json_path = os.path.join(output_dir, "metadata.json")
+                        
+                        wav_metadata = {
+                            'title': book_metadata.get('title', base_name),
+                            'author': book_metadata.get('author', 'Unknown Author'),
+                            'format': 'wav',
+                            'total_chapters': len(chapters),
+                            'chapters': []
+                        }
+                        
+                        for i, (ch, wav_file) in enumerate(zip(chapters, generated_files)):
+                            duration = ch.get('duration', 0)
+                            wav_metadata['chapters'].append({
+                                'index': i + 1,
+                                'title': ch['title'],
+                                'filename': os.path.basename(wav_file),
+                                'duration': duration,
+                                'duration_formatted': f"{int(duration // 60)}:{int(duration % 60):02d}" if duration else "0:00"
+                            })
+                        
+                        # Write metadata JSON
+                        try:
+                            with open(metadata_json_path, 'w', encoding='utf-8') as f:
+                                json.dump(wav_metadata, f, indent=4, ensure_ascii=False)
+                            self.log(f"Created metadata.json with chapter information")
+                        except Exception as e:
+                            self.log(f"Warning: Could not create metadata.json: {e}")
+                        
+                        self.log(f"Success! WAV files saved to: {output_dir}")
+                        self.log(f"  ({len(generated_files)} chapters in WAV format)")
                 
             # Log total time
             total_elapsed = time.time() - conversion_start_time

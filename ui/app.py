@@ -193,9 +193,54 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         model_info = self.model_data.get(value)
         if model_info and not self.model_manager.is_model_installed(model_info):
             self._log(f"NOTE: Model {value} needs to be downloaded.")
+        
+        # Update Character Voices button visibility based on model capabilities
+        if model_info:
+            num_speakers = model_info.get('num_speakers', 1)
+            self.voice_card.update_character_voices_button(num_speakers)
             
     def open_model_manager(self):
         ModelManagerDialog(self, self.model_manager, self.icons, self.refresh_model_list)
+        
+    def open_pause_settings(self):
+        from ui.dialogs.pause_settings import PauseSettingsDialog
+        PauseSettingsDialog(self, self.config_mgr, self.icons)
+        
+    def open_character_voices(self):
+        from ui.dialogs.character_voices import CharacterVoiceDialog
+        
+        if not self.selected_epubs:
+            messagebox.showwarning("No Book", "Please select a book first.")
+            return
+        
+        epub_path = self.selected_epubs[0]
+        if epub_path not in self.chapters_cache:
+            try:
+                self.chapters_cache[epub_path] = self.epub_processor.extract_chapters(epub_path)
+            except Exception as ex:
+                messagebox.showerror("Error", f"Failed to read chapters: {ex}")
+                return
+        
+        model_name = self.voice_card.model_var.get()
+        model_info = self.model_data.get(model_name)
+        
+        if not model_info:
+            messagebox.showerror("Error", "Please select a model first.")
+            return
+        
+        def on_save_assignments(assignments):
+            # Store character voice assignments in config
+            book_id = os.path.basename(epub_path)
+            self.config_mgr.set(f"character_voices_{book_id}", assignments)
+            self._log(f"Character voice assignments saved: {len(assignments)} characters")
+        
+        CharacterVoiceDialog(
+            self, 
+            self.chapters_cache[epub_path], 
+            model_info, 
+            self.icons, 
+            on_save_assignments
+        )
         
     def open_about(self):
         AboutDialog(self, self.icons)
@@ -362,6 +407,22 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             )
             self.current_worker = worker
             
+            # Load pause settings from config
+            pause_settings = {
+                'sentence_pause_ms': self.config_mgr.get("pause_sentence", 700),
+                'clause_pause_ms': self.config_mgr.get("pause_clause", 250),
+                'paragraph_pause_ms': self.config_mgr.get("pause_paragraph", 1500),
+                'dialogue_pause_ms': self.config_mgr.get("pause_dialogue", 400)
+            }
+            
+            # Load character voice assignments if available for multi-speaker models
+            character_voices = None
+            if model_info.get('num_speakers', 1) > 1:
+                book_id = os.path.basename(self.selected_epubs[0])
+                character_voices = self.config_mgr.get(f"character_voices_{book_id}", None)
+                if character_voices:
+                    self._log(f"Using character voice assignments: {len(character_voices)} characters")
+            
             worker.start(
                 selected_epubs=self.selected_epubs,
                 model_info=model_info,
@@ -374,7 +435,9 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 epub_processor=self.epub_processor,
                 custom_cover_path=self.custom_cover_path,
                 models_dir=self.config_mgr.get_models_dir(),
-                normalize=self.action_card.normalize_var.get()
+                normalize=self.action_card.normalize_var.get(),
+                pause_settings=pause_settings,
+                character_voices=character_voices
             )
 
         threading.Thread(target=run_async_start, daemon=True).start()
@@ -405,9 +468,53 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             try:
                 fd, temp_path = tempfile.mkstemp(suffix=".wav")
                 os.close(fd)
-                text = "This is a preview."
+                
+                # Get preview text - either from random chapter or default
+                preview_text = "This is a preview of the selected voice and speed settings."
+                preview_source = "default"
+                
+                # Check if we have chapters loaded and can do a random preview
+                if self.selected_epubs and self.selected_epubs[0] in self.chapters_cache:
+                    try:
+                        import random
+                        chapters = self.chapters_cache[self.selected_epubs[0]]
+                        
+                        # Filter to only selected chapters
+                        selected_chapters = [ch for ch in chapters if ch.get('selected', True)]
+                        
+                        if selected_chapters:
+                            # Randomly select a chapter
+                            random_chapter = random.choice(selected_chapters)
+                            chapter_title = random_chapter.get('title', 'Unknown Chapter')
+                            chapter_content = random_chapter.get('content', '')
+                            
+                            # Split into sentences and pick 2 random consecutive ones
+                            sentences = self.tts_engine._split_into_sentences(chapter_content)
+                            
+                            if len(sentences) >= 2:
+                                # Pick 2 consecutive sentences for better context
+                                max_start = len(sentences) - 2
+                                start_idx = random.randint(0, max_start) if max_start > 0 else 0
+                                preview_text = " ".join(sentences[start_idx:start_idx + 2])
+                                preview_source = f"from '{chapter_title}'"
+                            elif len(sentences) == 1:
+                                preview_text = sentences[0]
+                                preview_source = f"from '{chapter_title}'"
+                            else:
+                                # No sentences found, use first 200 chars
+                                preview_text = chapter_content[:200].strip()
+                                preview_source = f"from '{chapter_title}'"
+                    except Exception as e:
+                        self._log(f"Could not generate random preview: {e}")
+                
+                text = preview_text
                 speed = self.voice_card.speed_var.get()
                 sid = int(self.voice_card.speaker_entry.get())
+                
+                # Update status with preview source
+                status_msg = f"Previewing {preview_source}..."
+                self.after(0, lambda: self.action_card.status_label.configure(text=status_msg))
+                self._log(f"Preview: {preview_source}")
                 
                 config = model_info.copy()
                 config['model_dir'] = os.path.join(self.config_mgr.get_models_dir(), model_info['extracted_dir'])
@@ -424,7 +531,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                             self.audio_playing = True
                             sd.play(data, samplerate)
                             
-                            self.after(0, lambda: self.action_card.status_label.configure(text="Preview playing..."))
+                            self.after(0, lambda: self.action_card.status_label.configure(text=f"Playing preview {preview_source}..."))
                             
                             # Wait for playback to finish (non-blocking)
                             while sd.get_stream().active and not self._preview_cancelled:
@@ -437,9 +544,9 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                         except Exception as pe:
                             self._log(f"Playback error: {pe}")
                     else:
-                        self.after(0, lambda: messagebox.showerror("Error", "Failed to generate."))
+                        self.after(0, lambda: messagebox.showerror("Error", "Failed to generate preview audio."))
                 else:
-                    self.after(0, lambda: messagebox.showerror("Error", "Init TTS failed."))
+                    self.after(0, lambda: messagebox.showerror("Error", "Failed to initialize TTS model."))
                     
                 # Cleanup
                 for _ in range(3):

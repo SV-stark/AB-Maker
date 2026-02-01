@@ -53,7 +53,7 @@ class AudioConfig:
     default_speaker_id: str = "0"
     
     # Audio formats
-    supported_formats: List[str] = field(default_factory=lambda: ["m4b", "mp3"])
+    supported_formats: List[str] = field(default_factory=lambda: ["m4b", "mp3", "wav"])
     default_format: str = "m4b"
     
     # Preview text

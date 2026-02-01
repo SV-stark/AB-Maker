@@ -19,6 +19,10 @@ class ActionCardUI(ctk.CTkFrame):
         self.mp3_radio.pack(side="left", padx=10)
         CTkToolTip(self.mp3_radio, text="MP3 format (compatible with all devices)")
         
+        self.wav_radio = ctk.CTkRadioButton(a_row, text="WAV", variable=self.format_var, value="wav")
+        self.wav_radio.pack(side="left", padx=10)
+        CTkToolTip(self.wav_radio, text="WAV format (original quality, no conversion)")
+        
         # Quality
         ctk.CTkLabel(a_row, text="Quality:").pack(side="left", padx=(15, 5))
         self.quality_var = ctk.StringVar(value="Medium")

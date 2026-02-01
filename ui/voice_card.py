@@ -72,6 +72,34 @@ class VoiceCardUI(ctk.CTkFrame):
         self.gpu_switch.pack(side="right", padx=10)
         CTkToolTip(self.gpu_switch, text="Use CUDA GPU for faster processing")
         
+        # Character Voices Button (only for multi-speaker models)
+        self.character_voices_btn = ctk.CTkButton(
+            v_row2, 
+            text="Character Voices", 
+            width=110, 
+            height=24, 
+            command=self.app.open_character_voices, 
+            fg_color="transparent", 
+            border_width=1, 
+            text_color=("gray10", "gray90")
+        )
+        self.character_voices_btn.pack(side="right", padx=5)
+        CTkToolTip(self.character_voices_btn, text="Assign different voices to characters (multi-speaker models only)")
+        
+        # Pause Settings Button
+        self.pause_settings_btn = ctk.CTkButton(
+            v_row2, 
+            text="Pauses", 
+            width=70, 
+            height=24, 
+            command=self.app.open_pause_settings, 
+            fg_color="transparent", 
+            border_width=1, 
+            text_color=("gray10", "gray90")
+        )
+        self.pause_settings_btn.pack(side="right", padx=5)
+        CTkToolTip(self.pause_settings_btn, text="Configure pause durations between sentences, clauses, paragraphs")
+        
         # Advanced Models and Manager
         self.advanced_models_var = ctk.BooleanVar(value=False)
         self.advanced_switch = ctk.CTkSwitch(v_row2, text="Show All Models", variable=self.advanced_models_var, command=self.app.refresh_model_list, width=80)
@@ -102,3 +130,12 @@ class VoiceCardUI(ctk.CTkFrame):
             self.model_var.set(current_selection)
         elif model_names:
             self.model_var.set(model_names[0])
+    
+    def update_character_voices_button(self, num_speakers: int):
+        """Show or hide the Character Voices button based on model capabilities."""
+        if num_speakers > 1:
+            self.character_voices_btn.configure(state="normal")
+            self.character_voices_btn.configure(text_color=("gray10", "gray90"))
+        else:
+            self.character_voices_btn.configure(state="disabled")
+            self.character_voices_btn.configure(text_color="gray")
