@@ -41,13 +41,19 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.audio_playing = False
             
         # Window setup
-        self.title("AB-Maker: Audiobook Creator")
-        self.geometry("900x700")
-        self.minsize(800, 600)
+        self.title("AB-Maker — Audiobook Creator")
+        self.geometry("1100x800")
+        self.minsize(900, 700)
+        
+        # Configure grid
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
         
         # Register Drop Target
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self._on_drop)
+        self.dnd_bind('<<DropEnter>>', self._on_drag_enter)
+        self.dnd_bind('<<DropLeave>>', self._on_drag_leave)
         
         # Initialize managers with dependency injection
         self.config_mgr = config_manager or ConfigManager()
@@ -67,9 +73,11 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.icons = generate_icons()
         self.model_data = {}
         self._preview_cancelled = False
+        self._drag_hover = False
         
         # Build UI
         self._create_widgets()
+        self._setup_keyboard_shortcuts()
         self._load_settings()
         self._check_ffmpeg()
         
@@ -84,7 +92,6 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         
-        # Keep existing handlers if any to avoid duplication on reload (not issue usually)
         if not logger.handlers:
            file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=3, encoding='utf-8')
            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -93,30 +100,78 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
            logging.info("Logging initialized.")
 
     def _create_widgets(self):
-        # Configure layout
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        
         # Sidebar
-        self.sidebar = SidebarUI(self, self, width=200, corner_radius=0)
+        self.sidebar = SidebarUI(self, self, width=220, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         
-        # Main View
-        self.main_view = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_view.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        # Main Container
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.grid(row=0, column=1, sticky="nsew", padx=24, pady=20)
+        self.main_container.grid_columnconfigure(0, weight=1)
+        self.main_container.grid_rowconfigure(1, weight=1)
+        
+        # Header
+        self._create_header()
+        
+        # Scrollable Content Area
+        self.content_scroll = ctk.CTkScrollableFrame(
+            self.main_container, 
+            fg_color="transparent",
+            corner_radius=0
+        )
+        self.content_scroll.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
+        self.content_scroll.grid_columnconfigure(0, weight=1)
+        
+        # Cards Container
+        self.cards_frame = ctk.CTkFrame(self.content_scroll, fg_color="transparent")
+        self.cards_frame.pack(fill="x", expand=True)
         
         # Cards
-        self.book_card = BookCardUI(self.main_view, self, self.icons)
-        self.book_card.pack(fill="x", pady=(0, 15))
+        self.book_card = BookCardUI(self.cards_frame, self, self.icons)
+        self.book_card.pack(fill="x", pady=(0, 16))
         
-        self.voice_card = VoiceCardUI(self.main_view, self, self.icons)
-        self.voice_card.pack(fill="x", pady=(0, 15))
+        self.voice_card = VoiceCardUI(self.cards_frame, self, self.icons)
+        self.voice_card.pack(fill="x", pady=(0, 16))
         
-        self.action_card = ActionCardUI(self.main_view, self)
-        self.action_card.pack(fill="x", pady=(0, 10))
+        self.action_card = ActionCardUI(self.cards_frame, self)
+        self.action_card.pack(fill="x", pady=(0, 16))
         
         # Load initial model list
         self.refresh_model_list()
+
+    def _create_header(self):
+        """Create app header with title and quick actions"""
+        header = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew")
+        
+        # Title and subtitle
+        title_frame = ctk.CTkFrame(header, fg_color="transparent")
+        title_frame.pack(side="left")
+        
+        ctk.CTkLabel(
+            title_frame, 
+            text="AB-Maker", 
+            font=ctk.CTkFont(size=24, weight="bold")
+        ).pack(anchor="w")
+        
+        ctk.CTkLabel(
+            title_frame, 
+            text="Convert EPUBs to high-quality audiobooks", 
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        ).pack(anchor="w")
+
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for common actions"""
+        self.bind('<Control-o>', lambda e: self.select_files())
+        self.bind('<Control-O>', lambda e: self.select_files())
+        self.bind('<F5>', lambda e: self.preview_voice() if not self.current_worker else None)
+        self.bind('<Return>', lambda e: self.start_conversion() if not self.current_worker else None)
+        self.bind('<Escape>', lambda e: self.cancel_conversion() if self.current_worker else None)
+        self.bind('<Control-r>', lambda e: self.reset_to_defaults())
+        self.bind('<Control-R>', lambda e: self.reset_to_defaults())
+        self.bind('<Control-q>', lambda e: self._on_closing())
+        self.bind('<Control-Q>', lambda e: self._on_closing())
 
     def _load_settings(self):
         # Sidebar History
@@ -124,26 +179,33 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         # Voice Settings
         speed = self.config_mgr.get("last_speed", 1.0)
-        self.voice_card.speed_var.set(speed)
-        self.on_speed_change(speed)
+        if speed is not None:
+            self.voice_card.speed_var.set(float(speed))
+            self.on_speed_change(float(speed))
         
         self.voice_card.speaker_entry.delete(0, "end")
-        self.voice_card.speaker_entry.insert(0, self.config_mgr.get("last_speaker_id", "0"))
+        self.voice_card.speaker_entry.insert(0, self.config_mgr.get("last_speaker_id", "0") or "0")
         
-        self.voice_card.gpu_var.set(self.config_mgr.get("use_gpu", False))
+        gpu_value = self.config_mgr.get("use_gpu", False)
+        self.voice_card.gpu_var.set(gpu_value if gpu_value is not None else False)
         
         last_model = self.config_mgr.get("last_model")
         if last_model and last_model in self.model_data:
             self.voice_card.model_var.set(last_model)
             
         # Action Settings
-        self.action_card.format_var.set(self.config_mgr.get("output_format", "m4b"))
-        self.action_card.quality_var.set(self.config_mgr.get("last_quality", "Medium"))
-        self.action_card.normalize_var.set(self.config_mgr.get("normalize", False))
+        output_format = self.config_mgr.get("output_format", "m4b")
+        self.action_card.format_var.set(output_format if output_format else "m4b")
+        
+        last_quality = self.config_mgr.get("last_quality", "Medium")
+        self.action_card.quality_var.set(last_quality if last_quality else "Medium")
+        
+        normalize_value = self.config_mgr.get("normalize", False)
+        self.action_card.normalize_var.set(normalize_value if normalize_value is not None else False)
 
     def _check_ffmpeg(self):
         if not self.audio_builder.check_ffmpeg():
-            self._log("WARNING: FFmpeg not found! M4B/MP3 output may fail.")
+            self._log("⚠️ FFmpeg not found! M4B/MP3 output may fail.")
 
     def _log(self, message):
         self.action_card.log(message)
@@ -192,7 +254,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.config_mgr.set("last_model", value)
         model_info = self.model_data.get(value)
         if model_info and not self.model_manager.is_model_installed(model_info):
-            self._log(f"NOTE: Model {value} needs to be downloaded.")
+            self._log(f"ℹ️ Model '{value}' needs to be downloaded.")
         
         # Update Character Voices button visibility based on model capabilities
         if model_info:
@@ -251,8 +313,22 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.config_mgr.add_recent_file(path)
             self.book_card.update_file_label(self.selected_epubs)
             self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
+            self._load_book_metadata(path)
         else:
             messagebox.showerror("Error", "File not found.")
+
+    def _load_book_metadata(self, path):
+        """Load and display book metadata"""
+        try:
+            if path not in self.chapters_cache:
+                self.chapters_cache[path] = self.epub_processor.extract_chapters(path)
+            
+            chapters = self.chapters_cache[path]
+            metadata = self.epub_processor.extract_metadata(path)
+            
+            self.book_card.update_metadata(metadata, len(chapters))
+        except Exception as e:
+            self._log(f"Could not load metadata: {e}")
 
     def select_files(self):
         files = filedialog.askopenfilenames(
@@ -264,6 +340,23 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.config_mgr.add_recent_file(self.selected_epubs[0])
             self.book_card.update_file_label(self.selected_epubs)
             self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
+            self._load_book_metadata(self.selected_epubs[0])
+
+    def _on_drag_enter(self, event):
+        """Visual feedback when dragging files over the window"""
+        self._drag_hover = True
+        try:
+            self.book_card.set_drag_hover(True)
+        except:
+            pass
+    
+    def _on_drag_leave(self, event):
+        """Remove visual feedback when drag leaves"""
+        self._drag_hover = False
+        try:
+            self.book_card.set_drag_hover(False)
+        except:
+            pass
 
     def _on_drop(self, event):
         if event.data:
@@ -271,15 +364,21 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             if file_path.startswith('{') and file_path.endswith('}'):
                 file_path = file_path[1:-1]
             
+            self._drag_hover = False
+            try:
+                self.book_card.set_drag_hover(False)
+            except:
+                pass
+            
             if os.path.exists(file_path):
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext == '.epub':
                     self.load_book(file_path)
-                    self._log(f"Dropped file: {os.path.basename(file_path)}")
+                    self._log(f"📚 Dropped: {os.path.basename(file_path)}")
                 elif ext in ['.jpg', '.jpeg', '.png']:
                     self.custom_cover_path = file_path
                     self.book_card.update_cover_label(file_path)
-                    self._log(f"Dropped cover: {os.path.basename(file_path)}")
+                    self._log(f"🖼️ Cover: {os.path.basename(file_path)}")
 
     def select_output(self):
         folder = filedialog.askdirectory(title="Select Output Folder")
@@ -295,7 +394,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if cover_file:
             self.custom_cover_path = cover_file
             self.book_card.update_cover_label(cover_file)
-            self._log(f"Custom cover selected: {os.path.basename(cover_file)}")
+            self._log(f"Cover: {os.path.basename(cover_file)}")
             
     def clear_cover(self):
         self.custom_cover_path = None
@@ -316,7 +415,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         
         def save_callback():
              return self.epub_processor.save_chapters(epub_path, self.chapters_cache[epub_path])
-             
+              
         ChapterEditorDialog(self, self.chapters_cache[epub_path], self.icons, save_callback)
 
     # --- Worker Callbacks ---
@@ -378,7 +477,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         def run_async_start():
             # Download flow
             if not self.model_manager.is_model_installed(model_info):
-                self.after(0, lambda: self._log(f"Downloading {model_name}..."))
+                self.after(0, lambda: self._log(f"⬇️ Downloading {model_name}..."))
                 self.after(0, lambda: self.action_card.status_label.configure(text="Downloading Model..."))
                 
                 last_logged_pct = [0]
@@ -388,7 +487,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                         self._on_worker_progress(current / total)
                         if pct >= last_logged_pct[0] + 10:
                             last_logged_pct[0] = pct
-                            self.after(0, lambda: self._log(f"  DL: {pct}%"))
+                            self.after(0, lambda: self._log(f"  Progress: {pct}%"))
                 
                 success = self.model_manager.download_model(model_info, dl_progress)
                 if not success:
@@ -409,10 +508,10 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
             
             # Load pause settings from config
             pause_settings = {
-                'sentence_pause_ms': self.config_mgr.get("pause_sentence", 700),
-                'clause_pause_ms': self.config_mgr.get("pause_clause", 250),
-                'paragraph_pause_ms': self.config_mgr.get("pause_paragraph", 1500),
-                'dialogue_pause_ms': self.config_mgr.get("pause_dialogue", 400)
+                'sentence_pause_ms': self.config_mgr.get("pause_sentence", 700) or 700,
+                'clause_pause_ms': self.config_mgr.get("pause_clause", 250) or 250,
+                'paragraph_pause_ms': self.config_mgr.get("pause_paragraph", 1500) or 1500,
+                'dialogue_pause_ms': self.config_mgr.get("pause_dialogue", 400) or 400
             }
             
             # Load character voice assignments if available for multi-speaker models
@@ -421,7 +520,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 book_id = os.path.basename(self.selected_epubs[0])
                 character_voices = self.config_mgr.get(f"character_voices_{book_id}", None)
                 if character_voices:
-                    self._log(f"Using character voice assignments: {len(character_voices)} characters")
+                    self._log(f"🎭 Using character voice assignments: {len(character_voices)} characters")
             
             worker.start(
                 selected_epubs=self.selected_epubs,
@@ -514,7 +613,7 @@ class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 # Update status with preview source
                 status_msg = f"Previewing {preview_source}..."
                 self.after(0, lambda: self.action_card.status_label.configure(text=status_msg))
-                self._log(f"Preview: {preview_source}")
+                self._log(f"▶️ Preview: {preview_source}")
                 
                 config = model_info.copy()
                 config['model_dir'] = os.path.join(self.config_mgr.get_models_dir(), model_info['extracted_dir'])

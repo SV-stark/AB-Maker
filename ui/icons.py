@@ -40,6 +40,23 @@ def generate_icons():
         elif name == "play":
             draw.polygon([(6,5), (6,15), (16,10)], fill=color)
             
+        elif name == "gear":
+            # Draw gear/cog icon
+            import math
+            cx, cy = 10, 10
+            outer_radius = 7
+            inner_radius = 4
+            teeth = 8
+            points = []
+            for i in range(teeth * 2):
+                angle = (i * 360 / (teeth * 2) - 90) * math.pi / 180
+                radius = outer_radius if i % 2 == 0 else inner_radius
+                x = cx + radius * math.cos(angle)
+                y = cy + radius * math.sin(angle)
+                points.append((x, y))
+            draw.polygon(points, fill=color)
+            draw.ellipse([cx-2, cy-2, cx+2, cy+2], fill="white")
+            
         elif name == "logo":
             # Outer circle
             draw.ellipse([0,0,19,19], fill="#3b82f6")
