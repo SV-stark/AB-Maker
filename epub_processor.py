@@ -87,6 +87,7 @@ class EpubProcessor:
         import hashlib
         import json
         
+        cache_file = None
         try:
             # Create a unique hash for the file based on path and mod time
             mod_time = os.path.getmtime(epub_path)
@@ -129,11 +130,12 @@ class EpubProcessor:
                             continue
 
             # 2. Save to Cache
-            try:
-                with open(cache_file, 'w', encoding='utf-8') as f:
-                    json.dump(chapters, f)
-            except Exception as e:
-                self.logger.warning(f"Failed to write cache: {e}")
+            if cache_file:
+                try:
+                    with open(cache_file, 'w', encoding='utf-8') as f:
+                        json.dump(chapters, f)
+                except Exception as e:
+                    self.logger.warning(f"Failed to write cache: {e}")
 
             return chapters
         except KeyError:

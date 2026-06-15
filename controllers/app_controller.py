@@ -230,7 +230,8 @@ class AppController:
         voice_settings: VoiceSettings,
         model_info: dict,
         on_complete: Optional[Callable[[], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        on_play_progress: Optional[Callable[[float], None]] = None
     ) -> bool:
         """
         Preview voice with current settings.
@@ -240,6 +241,7 @@ class AppController:
             model_info: Model information
             on_complete: Optional completion callback
             on_error: Optional error callback
+            on_play_progress: Optional playback progress callback
             
         Returns:
             True if preview started
@@ -251,7 +253,7 @@ class AppController:
         self.update_status("Generating preview...")
         
         def play_complete():
-            self.update_status("Preview playing...")
+            self.update_status("Ready")
             if on_complete:
                 on_complete()
         
@@ -263,10 +265,12 @@ class AppController:
         
         def on_audio_generated(audio_path):
             if audio_path:
+                self.update_status("Playing preview...")
                 self.audio_service.play_audio(
                     audio_path,
                     on_complete=play_complete,
-                    on_error=play_error
+                    on_error=play_error,
+                    on_progress=on_play_progress
                 )
         
         def on_error_gen(error):

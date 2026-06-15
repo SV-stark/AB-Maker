@@ -8,16 +8,21 @@ import sys
 class ConfigManager:
     APP_NAME = "AB-Maker"
 
-    def __init__(self):
+    def __init__(self, config_path=None):
         self.logger = logging.getLogger(__name__)
-        self.app_data_dir = self._get_app_data_dir()
-        self.config_file = os.path.join(self.app_data_dir, "config.json")
+        if config_path:
+            self.config_file = config_path
+            self.app_data_dir = os.path.dirname(os.path.abspath(config_path))
+        else:
+            self.app_data_dir = self._get_app_data_dir()
+            self.config_file = os.path.join(self.app_data_dir, "config.json")
         
         # Ensure directory
         if not os.path.exists(self.app_data_dir):
             os.makedirs(self.app_data_dir)
             
-        self._migrate_legacy_data()
+        if not config_path:
+            self._migrate_legacy_data()
         self.config = self._load_from_disk()
         
         # Debouncing

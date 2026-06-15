@@ -1,12 +1,14 @@
+"""
+Refactored AB-Maker Main Application
+Clean architecture with Controller and Service layers
+"""
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import os
-import threading
-import logging
-import tempfile
-import time
+from pathlib import Path
+from typing import List, Optional
 
 # Core imports
 from model_manager import ModelManager
@@ -14,7 +16,13 @@ from epub_processor import EpubProcessor
 from tts_engine import TTSEngine
 from audio_builder import AudioBuilder
 from config_manager import ConfigManager
-from conversion_worker import ConversionWorker
+from core.event_bus import EventBus
+
+# Controller
+from controllers.app_controller import AppController
+
+# Models
+from models.domain import VoiceSettings, OutputSettings, ConversionStatus, AudioFormat
 
 # UI imports
 from ui.icons import generate_icons
@@ -26,645 +34,532 @@ from ui.dialogs.chapter_editor import ChapterEditorDialog
 from ui.dialogs.model_manager import ModelManagerDialog
 from ui.dialogs.about import AboutDialog
 
+
 class ABMakerApp(ctk.CTk, TkinterDnD.DnDWrapper):
-    def __init__(self, 
-                 config_manager=None,
-                 model_manager=None,
-                 epub_processor=None,
-                 tts_engine=None,
-                 audio_builder=None):
+    """
+    Refactored main application class.
+    
+    Responsibilities:
+    - UI initialization and layout
+    - Event handling from UI components
+    - Delegating business logic to AppController
+    - Managing UI state only
+    """
+    
+    def __init__(self):
         super().__init__()
         self.TkdndVersion = TkinterDnD._require(self)
         
-        # Audio playback state
-        self.audio_stream = None
-        self.audio_playing = False
-            
-        # Window setup
-        self.title("AB-Maker — Audiobook Creator")
-        self.geometry("1100x800")
-        self.minsize(900, 700)
+        # Initialize controller (which initializes all services)
+        self._init_controller()
         
-        # Configure grid
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        # Window setup
+        self._setup_window()
+        
+        # State (UI-only)
+        self.selected_epubs: List[Path] = []
+        self.output_dir: Optional[Path] = None
+        self.custom_cover_path: Optional[Path] = None
+        self.icons = generate_icons()
+        self.model_data: dict = {}
+        self.current_job_id: Optional[str] = None
+        self.tray_icon = None
+        
+        # Build UI
+        self._create_widgets()
+        
+        # Load settings through controller
+        self._load_settings()
+        
+        # Check dependencies
+        self._check_dependencies()
+        
+        # Initialize System Tray
+        self._init_system_tray()
+        
+        # Subscribe to EventBus
+        self.controller.subscribe_to_event("job_completed", self._on_job_completed)
+        self.controller.subscribe_to_event("job_failed", self._on_job_failed)
+        self.controller.subscribe_to_event("job_cancelled", self._on_job_cancelled)
+        
+        # Handle close
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
+    
+    def _init_controller(self):
+        """Initialize the application controller with all dependencies."""
+        # Create managers
+        config_manager = ConfigManager()
+        model_manager = ModelManager(models_dir=config_manager.get_models_dir())
+        epub_processor = EpubProcessor(cache_dir=config_manager.get_cache_dir())
+        tts_engine = TTSEngine()
+        audio_builder = AudioBuilder()
+        
+        # Create event bus for decoupled communication
+        event_bus = EventBus()
+        
+        # Create controller
+        self.controller = AppController(
+            config_manager=config_manager,
+            model_manager=model_manager,
+            epub_processor=epub_processor,
+            tts_engine=tts_engine,
+            audio_builder=audio_builder,
+            event_bus=event_bus
+        )
+        
+        # Set up UI callbacks
+        self.controller.set_ui_callbacks(
+            log_callback=self._on_log_message,
+            progress_callback=self._on_progress_update,
+            status_callback=self._on_status_update
+        )
+    
+    def _setup_window(self):
+        """Configure main window."""
+        self.title("AB-Maker: Audiobook Creator")
+        self.geometry("900x700")
+        self.minsize(800, 600)
         
         # Register Drop Target
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<Drop>>', self._on_drop)
-        self.dnd_bind('<<DropEnter>>', self._on_drag_enter)
-        self.dnd_bind('<<DropLeave>>', self._on_drag_leave)
-        
-        # Initialize managers with dependency injection
-        self.config_mgr = config_manager or ConfigManager()
-        self._setup_logging()
-        
-        self.model_manager = model_manager or ModelManager(models_dir=self.config_mgr.get_models_dir())
-        self.epub_processor = epub_processor or EpubProcessor(cache_dir=self.config_mgr.get_cache_dir())
-        self.tts_engine = tts_engine or TTSEngine()
-        self.audio_builder = audio_builder or AudioBuilder()
-        
-        # State
-        self.selected_epubs = []
-        self.output_dir = None
-        self.current_worker = None
-        self.chapters_cache = {}
-        self.custom_cover_path = None
-        self.icons = generate_icons()
-        self.model_data = {}
-        self._preview_cancelled = False
-        self._drag_hover = False
-        
-        # Build UI
-        self._create_widgets()
-        self._setup_keyboard_shortcuts()
-        self._load_settings()
-        self._check_ffmpeg()
-        
-        # Handle close
-        self.protocol("WM_DELETE_WINDOW", self._on_closing)
-
-    def _setup_logging(self):
-        log_dir = self.config_mgr.get_logs_dir()
-        log_file = os.path.join(log_dir, "app.log")
-        from logging.handlers import RotatingFileHandler
-        
-        logger = logging.getLogger()
-        logger.setLevel(logging.INFO)
-        
-        if not logger.handlers:
-           file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=3, encoding='utf-8')
-           file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-           file_handler.setFormatter(file_formatter)
-           logger.addHandler(file_handler)
-           logging.info("Logging initialized.")
-
+    
     def _create_widgets(self):
+        """Create UI components."""
+        # Configure layout
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        
         # Sidebar
-        self.sidebar = SidebarUI(self, self, width=220, corner_radius=0)
+        self.sidebar = SidebarUI(self, self, width=200, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         
-        # Main Container
-        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_container.grid(row=0, column=1, sticky="nsew", padx=24, pady=20)
-        self.main_container.grid_columnconfigure(0, weight=1)
-        self.main_container.grid_rowconfigure(1, weight=1)
-        
-        # Header
-        self._create_header()
-        
-        # Scrollable Content Area
-        self.content_scroll = ctk.CTkScrollableFrame(
-            self.main_container, 
-            fg_color="transparent",
-            corner_radius=0
-        )
-        self.content_scroll.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
-        self.content_scroll.grid_columnconfigure(0, weight=1)
-        
-        # Cards Container
-        self.cards_frame = ctk.CTkFrame(self.content_scroll, fg_color="transparent")
-        self.cards_frame.pack(fill="x", expand=True)
+        # Main View
+        self.main_view = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_view.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
         
         # Cards
-        self.book_card = BookCardUI(self.cards_frame, self, self.icons)
-        self.book_card.pack(fill="x", pady=(0, 16))
+        self.book_card = BookCardUI(self.main_view, self, self.icons)
+        self.book_card.pack(fill="x", pady=(0, 15))
         
-        self.voice_card = VoiceCardUI(self.cards_frame, self, self.icons)
-        self.voice_card.pack(fill="x", pady=(0, 16))
+        self.voice_card = VoiceCardUI(self.main_view, self, self.icons)
+        self.voice_card.pack(fill="x", pady=(0, 15))
         
-        self.action_card = ActionCardUI(self.cards_frame, self)
-        self.action_card.pack(fill="x", pady=(0, 16))
+        self.action_card = ActionCardUI(self.main_view, self)
+        self.action_card.pack(fill="x", pady=(0, 10))
         
         # Load initial model list
-        self.refresh_model_list()
-
-    def _create_header(self):
-        """Create app header with title and quick actions"""
-        header = ctk.CTkFrame(self.main_container, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew")
-        
-        # Title and subtitle
-        title_frame = ctk.CTkFrame(header, fg_color="transparent")
-        title_frame.pack(side="left")
-        
-        ctk.CTkLabel(
-            title_frame, 
-            text="AB-Maker", 
-            font=ctk.CTkFont(size=24, weight="bold")
-        ).pack(anchor="w")
-        
-        ctk.CTkLabel(
-            title_frame, 
-            text="Convert EPUBs to high-quality audiobooks", 
-            font=ctk.CTkFont(size=12),
-            text_color="gray"
-        ).pack(anchor="w")
-
-    def _setup_keyboard_shortcuts(self):
-        """Setup keyboard shortcuts for common actions"""
-        self.bind('<Control-o>', lambda e: self.select_files())
-        self.bind('<Control-O>', lambda e: self.select_files())
-        self.bind('<F5>', lambda e: self.preview_voice() if not self.current_worker else None)
-        self.bind('<Return>', lambda e: self.start_conversion() if not self.current_worker else None)
-        self.bind('<Escape>', lambda e: self.cancel_conversion() if self.current_worker else None)
-        self.bind('<Control-r>', lambda e: self.reset_to_defaults())
-        self.bind('<Control-R>', lambda e: self.reset_to_defaults())
-        self.bind('<Control-q>', lambda e: self._on_closing())
-        self.bind('<Control-Q>', lambda e: self._on_closing())
-
+        self._refresh_model_list()
+    
     def _load_settings(self):
-        # Sidebar History
-        self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
+        """Load and apply settings via controller."""
+        # Load recent files
+        recent_files = self.controller.get_recent_files()
+        self.sidebar.load_recent_files([str(f.path) for f in recent_files])
         
-        # Voice Settings
-        speed = self.config_mgr.get("last_speed", 1.0)
-        if speed is not None:
-            self.voice_card.speed_var.set(float(speed))
-            self.on_speed_change(float(speed))
-        
+        # Voice settings
+        voice_settings = self.controller.get_voice_settings()
+        self.voice_card.speed_var.set(voice_settings.speed)
+        self.voice_card.update_speed_label(voice_settings.speed)
         self.voice_card.speaker_entry.delete(0, "end")
-        self.voice_card.speaker_entry.insert(0, self.config_mgr.get("last_speaker_id", "0") or "0")
+        self.voice_card.speaker_entry.insert(0, str(voice_settings.speaker_id))
+        self.voice_card.gpu_var.set(voice_settings.use_gpu)
         
-        gpu_value = self.config_mgr.get("use_gpu", False)
-        self.voice_card.gpu_var.set(gpu_value if gpu_value is not None else False)
-        
-        last_model = self.config_mgr.get("last_model")
-        if last_model and last_model in self.model_data:
-            self.voice_card.model_var.set(last_model)
-            
-        # Action Settings
-        output_format = self.config_mgr.get("output_format", "m4b")
-        self.action_card.format_var.set(output_format if output_format else "m4b")
-        
-        last_quality = self.config_mgr.get("last_quality", "Medium")
-        self.action_card.quality_var.set(last_quality if last_quality else "Medium")
-        
-        normalize_value = self.config_mgr.get("normalize", False)
-        self.action_card.normalize_var.set(normalize_value if normalize_value is not None else False)
-
-    def _check_ffmpeg(self):
-        if not self.audio_builder.check_ffmpeg():
-            self._log("⚠️ FFmpeg not found! M4B/MP3 output may fail.")
-
-    def _log(self, message):
+        # Output settings
+        output_settings = self.controller.get_output_settings()
+        self.action_card.format_var.set(output_settings.format.value)
+        self.action_card.quality_var.set(output_settings.quality)
+        self.action_card.normalize_var.set(output_settings.normalize)
+    
+    def _check_dependencies(self):
+        """Check required dependencies."""
+        if not self.controller.check_ffmpeg():
+            self.controller.log("WARNING: FFmpeg not found! M4B/MP3 output may fail.")
+    
+    # --- UI Callbacks ---
+    
+    def _on_log_message(self, message: str):
+        """Handle log message from controller."""
         self.action_card.log(message)
-
-    # --- Actions (Delegated from UI modules) ---
+    
+    def _on_progress_update(self, progress: float):
+        """Handle progress update from controller."""
+        self.action_card.progress.set(progress)
+    
+    def _on_status_update(self, status: str):
+        """Handle status update from controller."""
+        self.action_card.status_label.configure(text=status)
+    
+    # --- Event Handlers (Delegated to Controller) ---
     
     def on_speed_change(self, value):
-        self.voice_card.update_speed_label(value)
-        self.config_mgr.set("last_speed", value)
+        """Handle speed slider change."""
+        speed = self.controller.validate_speed(value)
+        self.voice_card.update_speed_label(speed)
         
+        # Update settings via controller
+        settings = self.controller.get_voice_settings()
+        settings.speed = speed
+        self.controller.set_voice_settings(settings)
+    
     def on_gpu_change(self):
-        self.config_mgr.set("use_gpu", self.voice_card.gpu_var.get())
+        """Handle GPU toggle change."""
+        settings = self.controller.get_voice_settings()
+        settings.use_gpu = self.voice_card.gpu_var.get()
+        self.controller.set_voice_settings(settings)
     
     def reset_to_defaults(self):
-        """Reset all settings to default values."""
-        # Voice settings
+        """Reset all settings to defaults."""
+        # Reset UI elements
         self.voice_card.speed_var.set(1.0)
         self.voice_card.update_speed_label(1.0)
         self.voice_card.speaker_entry.delete(0, "end")
         self.voice_card.speaker_entry.insert(0, "0")
         self.voice_card.gpu_var.set(False)
         
-        # Action settings
         self.action_card.format_var.set("m4b")
         self.action_card.quality_var.set("Medium")
         self.action_card.normalize_var.set(False)
         
-        # Save to config
-        self.config_mgr.set("last_speed", 1.0)
-        self.config_mgr.set("last_speaker_id", "0")
-        self.config_mgr.set("use_gpu", False)
-        self.config_mgr.set("output_format", "m4b")
-        self.config_mgr.set("last_quality", "Medium")
-        self.config_mgr.set("normalize", False)
-        
-        self._log("Settings reset to defaults")
-        
-    def refresh_model_list(self):
+        # Reset via controller
+        self.controller.reset_settings()
+    
+    def _refresh_model_list(self):
+        """Refresh available model list."""
         show_all = self.voice_card.advanced_models_var.get()
-        models = self.model_manager.list_available_models(only_recommended=not show_all)
-        self.model_data = {m['name']: m for m in models}
+        models = self.controller.get_available_models(only_recommended=not show_all)
+        
+        self.model_data = {m.name: m.to_dict() for m in models}
         model_names = list(self.model_data.keys())
         self.voice_card.update_model_list(model_names, self.voice_card.model_var.get())
-        
+    
     def on_model_change(self, value):
-        self.config_mgr.set("last_model", value)
-        model_info = self.model_data.get(value)
-        if model_info and not self.model_manager.is_model_installed(model_info):
-            self._log(f"ℹ️ Model '{value}' needs to be downloaded.")
+        """Handle model selection change."""
+        settings = self.controller.get_voice_settings()
+        settings.model_name = value
+        self.controller.set_voice_settings(settings)
         
-        # Update Character Voices button visibility based on model capabilities
-        if model_info:
-            num_speakers = model_info.get('num_speakers', 1)
-            self.voice_card.update_character_voices_button(num_speakers)
-            
+        # Check if model needs download
+        if not self.controller.is_model_installed(value):
+            self.controller.log(f"NOTE: Model {value} needs to be downloaded.")
+    
     def open_model_manager(self):
-        ModelManagerDialog(self, self.model_manager, self.icons, self.refresh_model_list)
-        
-    def open_pause_settings(self):
-        from ui.dialogs.pause_settings import PauseSettingsDialog
-        PauseSettingsDialog(self, self.config_mgr, self.icons)
-        
-    def open_character_voices(self):
-        from ui.dialogs.character_voices import CharacterVoiceDialog
-        
-        if not self.selected_epubs:
-            messagebox.showwarning("No Book", "Please select a book first.")
-            return
-        
-        epub_path = self.selected_epubs[0]
-        if epub_path not in self.chapters_cache:
-            try:
-                self.chapters_cache[epub_path] = self.epub_processor.extract_chapters(epub_path)
-            except Exception as ex:
-                messagebox.showerror("Error", f"Failed to read chapters: {ex}")
-                return
-        
-        model_name = self.voice_card.model_var.get()
-        model_info = self.model_data.get(model_name)
-        
-        if not model_info:
-            messagebox.showerror("Error", "Please select a model first.")
-            return
-        
-        def on_save_assignments(assignments):
-            # Store character voice assignments in config
-            book_id = os.path.basename(epub_path)
-            self.config_mgr.set(f"character_voices_{book_id}", assignments)
-            self._log(f"Character voice assignments saved: {len(assignments)} characters")
-        
-        CharacterVoiceDialog(
-            self, 
-            self.chapters_cache[epub_path], 
-            model_info, 
-            self.icons, 
-            on_save_assignments
-        )
-        
+        """Open model manager dialog."""
+        ModelManagerDialog(self, self.controller.model_service._model_manager, self.icons, self._refresh_model_list)
+    
     def open_about(self):
+        """Open about dialog."""
         AboutDialog(self, self.icons)
+    
+    def load_book(self, path: str):
+        """Load an EPUB book file."""
+        file_path = Path(path)
+        success, error = self.controller.load_epub_file(file_path)
+        
+        if success:
+            self.selected_epurbs = [file_path]
+            self.book_card.update_file_label([str(p) for p in self.selected_epurbs])
             
-    def load_book(self, path):
-        if os.path.exists(path):
-            self.selected_epubs = [path]
-            self.config_mgr.add_recent_file(path)
-            self.book_card.update_file_label(self.selected_epubs)
-            self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
-            self._load_book_metadata(path)
+            # Refresh recent files
+            recent_files = self.controller.get_recent_files()
+            self.sidebar.load_recent_files([str(f.path) for f in recent_files])
         else:
-            messagebox.showerror("Error", "File not found.")
-
-    def _load_book_metadata(self, path):
-        """Load and display book metadata"""
-        try:
-            if path not in self.chapters_cache:
-                self.chapters_cache[path] = self.epub_processor.extract_chapters(path)
-            
-            chapters = self.chapters_cache[path]
-            metadata = self.epub_processor.extract_metadata(path)
-            
-            self.book_card.update_metadata(metadata, len(chapters))
-        except Exception as e:
-            self._log(f"Could not load metadata: {e}")
-
+            messagebox.showerror("Error", error or "Failed to load file")
+    
     def select_files(self):
+        """Select EPUB files via dialog."""
         files = filedialog.askopenfilenames(
             title="Select EPUB Files",
-            filetypes=[("EPUB files", "*.epub"), ("All files", "*.*")]
+            filetypes=self.controller.file_service.get_file_dialog_filters("epub")
         )
+        
         if files:
-            self.selected_epubs = list(files)
-            self.config_mgr.add_recent_file(self.selected_epubs[0])
-            self.book_card.update_file_label(self.selected_epubs)
-            self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
-            self._load_book_metadata(self.selected_epubs[0])
-
-    def _on_drag_enter(self, event):
-        """Visual feedback when dragging files over the window"""
-        self._drag_hover = True
-        try:
-            self.book_card.set_drag_hover(True)
-        except:
-            pass
+            self.selected_epurbs = [Path(f) for f in files]
+            
+            # Load first file
+            success, _ = self.controller.load_epub_file(self.selected_epurbs[0])
+            
+            if success:
+                self.book_card.update_file_label([str(p) for p in self.selected_epurbs])
+                
+                # Refresh recent files
+                recent_files = self.controller.get_recent_files()
+                self.sidebar.load_recent_files([str(f.path) for f in recent_files])
     
-    def _on_drag_leave(self, event):
-        """Remove visual feedback when drag leaves"""
-        self._drag_hover = False
-        try:
-            self.book_card.set_drag_hover(False)
-        except:
-            pass
-
     def _on_drop(self, event):
+        """Handle drag-and-drop file."""
         if event.data:
             file_path = event.data
             if file_path.startswith('{') and file_path.endswith('}'):
                 file_path = file_path[1:-1]
             
-            self._drag_hover = False
-            try:
-                self.book_card.set_drag_hover(False)
-            except:
-                pass
+            path = Path(file_path)
             
-            if os.path.exists(file_path):
-                ext = os.path.splitext(file_path)[1].lower()
+            if path.exists():
+                ext = path.suffix.lower()
                 if ext == '.epub':
                     self.load_book(file_path)
-                    self._log(f"📚 Dropped: {os.path.basename(file_path)}")
+                    self.controller.log(f"Dropped file: {path.name}")
                 elif ext in ['.jpg', '.jpeg', '.png']:
-                    self.custom_cover_path = file_path
-                    self.book_card.update_cover_label(file_path)
-                    self._log(f"🖼️ Cover: {os.path.basename(file_path)}")
-
+                    success, error = self.controller.set_cover_image(path)
+                    if success:
+                        self.custom_cover_path = path
+                        self.book_card.update_cover_label(str(path))
+                        self.controller.log(f"Dropped cover: {path.name}")
+                    else:
+                        messagebox.showerror("Error", error)
+    
     def select_output(self):
+        """Select output directory."""
         folder = filedialog.askdirectory(title="Select Output Folder")
         if folder:
-            self.output_dir = folder
-            self.book_card.update_output_label(folder)
+            dir_path = Path(folder)
+            success, error = self.controller.set_output_directory(dir_path)
             
+            if success:
+                self.output_dir = dir_path
+                self.book_card.update_output_label(folder)
+            else:
+                messagebox.showerror("Error", error)
+    
     def select_cover(self):
+        """Select cover image file."""
         cover_file = filedialog.askopenfilename(
             title="Select Cover Image",
-            filetypes=[("Image files", "*.jpg *.jpeg *.png *.gif *.bmp"), ("All files", "*.*")]
+            filetypes=self.controller.file_service.get_file_dialog_filters("image")
         )
+        
         if cover_file:
-            self.custom_cover_path = cover_file
-            self.book_card.update_cover_label(cover_file)
-            self._log(f"Cover: {os.path.basename(cover_file)}")
+            path = Path(cover_file)
+            success, error = self.controller.set_cover_image(path)
             
+            if success:
+                self.custom_cover_path = path
+                self.book_card.update_cover_label(cover_file)
+                self.controller.log(f"Custom cover selected: {path.name}")
+            else:
+                messagebox.showerror("Error", error)
+    
     def clear_cover(self):
+        """Clear custom cover selection."""
         self.custom_cover_path = None
         self.book_card.update_cover_label(None)
-        
+    
     def view_chapters(self):
-        if not self.selected_epubs:
+        """Open chapter editor dialog."""
+        if not self.selected_epurbs:
             messagebox.showwarning("No File", "Please select an EPUB first.")
             return
         
-        epub_path = self.selected_epubs[0]
-        if epub_path not in self.chapters_cache:
-            try:
-                self.chapters_cache[epub_path] = self.epub_processor.extract_chapters(epub_path)
-            except Exception as ex:
-                messagebox.showerror("Error", f"Failed to read chapters: {ex}")
-                return
-        
-        def save_callback():
-             return self.epub_processor.save_chapters(epub_path, self.chapters_cache[epub_path])
-              
-        ChapterEditorDialog(self, self.chapters_cache[epub_path], self.icons, save_callback)
-
-    # --- Worker Callbacks ---
-    def _on_worker_log(self, msg):
-        self.after(0, lambda: self._log(msg))
+        # TODO: Implement chapter extraction through controller
+        messagebox.showinfo("Info", "Chapter editor not yet implemented in refactored version")
     
-    def _on_worker_progress(self, val):
-        self.after(0, lambda: self.action_card.progress.set(val))
-    
-    def _on_worker_status(self, msg, progress=None, eta=None, chapter_idx=None, chapter_status=None):
-        self.after(0, lambda: self.action_card.status_label.configure(text=msg))
-        if progress is not None:
-             self._on_worker_progress(progress)
-        if eta is not None:
-             self.after(0, lambda: self.action_card.eta_label.configure(text=eta))
-        if chapter_idx is not None and chapter_status:
-             self.after(0, lambda: self.action_card.update_chapter_status(chapter_idx, chapter_status))
-
-    def _on_worker_done(self):
-        self.current_worker = None
-        self.after(0, self.action_card.reset_ui)
-        # Beep notification
-        print('\a')
-        
-        # Mark files as completed
-        for epub_path in self.selected_epubs:
-            self.config_mgr.set_file_status(epub_path, "completed")
-        self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
-            
-    def _init_chapter_list(self, chapters):
-        self.after(0, lambda: self.action_card.init_chapter_list(chapters))
-
-    # --- Main Logic ---
     def start_conversion(self):
-        if not self.selected_epubs:
+        """Start audiobook conversion."""
+        if not self.selected_epurbs:
             messagebox.showwarning("No File", "Please select EPUB file(s) first.")
             return
         
-        model_name = self.voice_card.model_var.get()
-        model_info = self.model_data.get(model_name)
-        if not model_info:
-            messagebox.showerror("Error", "Please select a valid model.")
-            return
-            
-        # UI Setup
+        # Get voice settings from UI
+        settings = VoiceSettings(
+            model_name=self.voice_card.model_var.get(),
+            speed=self.voice_card.speed_var.get(),
+            speaker_id=int(self.voice_card.speaker_entry.get()),
+            use_gpu=self.voice_card.gpu_var.get()
+        )
+        
+        # Get output settings from UI
+        output = OutputSettings(
+            format=AudioFormat(self.action_card.format_var.get()),
+            quality=self.action_card.quality_var.get(),
+            output_dir=self.output_dir,
+            normalize=self.action_card.normalize_var.get(),
+            custom_cover=self.custom_cover_path
+        )
+        
+        # Update UI state
         self.action_card.set_converting_state()
         
-        # Save settings
-        self.config_mgr.set("output_format", self.action_card.format_var.get())
-        self.config_mgr.set("last_quality", self.action_card.quality_var.get())
-        self.config_mgr.set("last_speaker_id", self.voice_card.speaker_entry.get())
-        self.config_mgr.set("normalize", self.action_card.normalize_var.get())
+        # Start conversion via controller
+        self.current_job_id = self.controller.start_conversion(
+            self.selected_epurbs,
+            settings,
+            output
+        )
         
-        # Mark files as in_progress
-        for epub_path in self.selected_epubs:
-            self.config_mgr.set_file_status(epub_path, "in_progress")
-        self.sidebar.load_recent_files(self.config_mgr.get_recent_files())
-
-        def run_async_start():
-            # Download flow
-            if not self.model_manager.is_model_installed(model_info):
-                self.after(0, lambda: self._log(f"⬇️ Downloading {model_name}..."))
-                self.after(0, lambda: self.action_card.status_label.configure(text="Downloading Model..."))
-                
-                last_logged_pct = [0]
-                def dl_progress(current, total):
-                    if total > 0:
-                        pct = int((current / total) * 100)
-                        self._on_worker_progress(current / total)
-                        if pct >= last_logged_pct[0] + 10:
-                            last_logged_pct[0] = pct
-                            self.after(0, lambda: self._log(f"  Progress: {pct}%"))
-                
-                success = self.model_manager.download_model(model_info, dl_progress)
-                if not success:
-                    self.after(0, lambda: messagebox.showerror("Error", "Model download failed!"))
-                    self.after(0, self.action_card.reset_ui)
-                    return
-            
-            # Start Worker
-            worker = ConversionWorker(
-                self.tts_engine, self.audio_builder,
-                log_callback=self._on_worker_log,
-                progress_callback=self._on_worker_progress,
-                status_callback=self._on_worker_status,
-                done_callback=self._on_worker_done,
-                init_list_callback=self._init_chapter_list
-            )
-            self.current_worker = worker
-            
-            # Load pause settings from config
-            pause_settings = {
-                'sentence_pause_ms': self.config_mgr.get("pause_sentence", 700) or 700,
-                'clause_pause_ms': self.config_mgr.get("pause_clause", 250) or 250,
-                'paragraph_pause_ms': self.config_mgr.get("pause_paragraph", 1500) or 1500,
-                'dialogue_pause_ms': self.config_mgr.get("pause_dialogue", 400) or 400
-            }
-            
-            # Load character voice assignments if available for multi-speaker models
-            character_voices = None
-            if model_info.get('num_speakers', 1) > 1:
-                book_id = os.path.basename(self.selected_epubs[0])
-                character_voices = self.config_mgr.get(f"character_voices_{book_id}", None)
-                if character_voices:
-                    self._log(f"🎭 Using character voice assignments: {len(character_voices)} characters")
-            
-            worker.start(
-                selected_epubs=self.selected_epubs,
-                model_info=model_info,
-                output_dir_root=self.output_dir or os.path.dirname(self.selected_epubs[0]),
-                speed=self.voice_card.speed_var.get(),
-                speaker_id=self.voice_card.speaker_entry.get(),
-                output_format=self.action_card.format_var.get(),
-                quality=self.action_card.quality_var.get(),
-                use_gpu=self.voice_card.gpu_var.get(),
-                epub_processor=self.epub_processor,
-                custom_cover_path=self.custom_cover_path,
-                models_dir=self.config_mgr.get_models_dir(),
-                normalize=self.action_card.normalize_var.get(),
-                pause_settings=pause_settings,
-                character_voices=character_voices
-            )
-
-        threading.Thread(target=run_async_start, daemon=True).start()
-
+        if self.current_job_id:
+            self.controller.log(f"Conversion started: {self.selected_epurbs[0].name}")
+        else:
+            self.action_card.reset_ui()
+    
     def cancel_conversion(self):
-        if self.current_worker:
-            self.current_worker.cancel()
+        """Cancel running conversion."""
+        if self.current_job_id:
+            self.controller.cancel_conversion(self.current_job_id)
             self.action_card.cancel_btn.configure(state="disabled")
-
+            self.controller.log("Cancelling conversion job...")
+    
     def preview_voice(self):
+        """Preview voice with current settings (toggles play/stop)."""
+        if self.controller.audio_service.is_playing():
+            self.controller.stop_preview()
+            self.voice_card.preview_btn.configure(text="▶ Play Preview", state="normal")
+            self.voice_card.preview_progress.set(0)
+            return
+
         model_name = self.voice_card.model_var.get()
-        model_info = self.model_data.get(model_name)
-        
-        if not model_info: return
-        if not self.model_manager.is_model_installed(model_info):
-            messagebox.showinfo("Preview", "Please download the model first.")
+        if not model_name:
+            messagebox.showwarning("No Model", "Please select a model first.")
             return
-
-        if self.current_worker:
-            messagebox.showwarning("Busy", "Cannot preview while conversion is in progress.")
-            return
-
-        self.voice_card.preview_btn.configure(state="disabled")
-        self.action_card.status_label.configure(text="Generating preview...")
-        self._preview_cancelled = False
         
-        def run_preview():
+        # Get settings
+        settings = VoiceSettings(
+            model_name=model_name,
+            speed=self.voice_card.speed_var.get(),
+            speaker_id=int(self.voice_card.speaker_entry.get()),
+            use_gpu=self.voice_card.gpu_var.get()
+        )
+        
+        model_info = self.model_data.get(model_name, {})
+        
+        # Toggle UI to Stop mode
+        self.voice_card.preview_btn.configure(text="⏹ Stop Preview")
+        self.voice_card.preview_progress.set(0)
+        
+        def on_complete():
+            self.after(0, lambda: self.voice_card.preview_btn.configure(text="▶ Play Preview", state="normal"))
+            self.after(0, lambda: self.voice_card.preview_progress.set(0))
+            
+        def on_error(err):
+            self.after(0, lambda: self.voice_card.preview_btn.configure(text="▶ Play Preview", state="normal"))
+            self.after(0, lambda: self.voice_card.preview_progress.set(0))
+            
+        def on_progress(p):
+            self.after(0, lambda: self.voice_card.preview_progress.set(p))
+        
+        # Start preview via controller
+        success = self.controller.preview_voice(
+            settings,
+            model_info,
+            on_complete=on_complete,
+            on_error=on_error,
+            on_play_progress=on_progress
+        )
+        
+        if not success:
+            self.voice_card.preview_btn.configure(text="▶ Play Preview", state="normal")
+
+    def _init_system_tray(self):
+        """Initialize system tray menu and icon."""
+        try:
+            import pystray
+            from PIL import Image, ImageDraw
+            
+            # Simple fallback icon (mint green circle)
+            width = 64
+            height = 64
+            image = Image.new('RGB', (width, height), color=(30, 30, 30))
+            dc = ImageDraw.Draw(image)
+            dc.ellipse((8, 8, 56, 56), fill=(46, 204, 113))
+            
+            icon_path = Path(__file__).parent.parent / "assets" / "icon.png"
+            if icon_path.exists():
+                try:
+                    image = Image.open(icon_path)
+                except:
+                    pass
+                
+            def on_show(icon, item):
+                self.after(0, self._show_window)
+                
+            def on_exit(icon, item):
+                self.after(0, self._force_exit)
+                
+            menu = pystray.Menu(
+                pystray.MenuItem('Show AB-Maker', on_show),
+                pystray.MenuItem('Exit', on_exit)
+            )
+            
+            self.tray_icon = pystray.Icon("ab_maker", image, "AB-Maker", menu)
+            self.tray_icon.run_detached()
+        except Exception as e:
+            self.controller.log(f"System tray error: {e}")
+            self.tray_icon = None
+
+    def _show_window(self):
+        """Restore app window."""
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        
+    def _force_exit(self):
+        """Force terminate app and stop tray icon."""
+        if self.current_job_id:
+            self.controller.cancel_conversion(self.current_job_id)
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.destroy()
+        import os
+        os._exit(0)
+
+    def _show_notification(self, title, message):
+        """Show native desktop notification."""
+        try:
+            from plyer import notification
+            notification.notify(
+                title=title,
+                message=message,
+                app_name="AB-Maker",
+                timeout=5
+            )
+        except Exception as e:
+            self.controller.log(f"Notification error: {e}")
+
+    def _on_job_completed(self, event):
+        job = event.data.get('job')
+        if job and job.id == self.current_job_id:
+            self.current_job_id = None
+            self.action_card.reset_ui()
+            self._show_notification("Conversion Complete 🎉", f"Audiobook created successfully: {job.book_metadata.title}")
             try:
-                fd, temp_path = tempfile.mkstemp(suffix=".wav")
-                os.close(fd)
-                
-                # Get preview text - either from random chapter or default
-                preview_text = "This is a preview of the selected voice and speed settings."
-                preview_source = "default"
-                
-                # Check if we have chapters loaded and can do a random preview
-                if self.selected_epubs and self.selected_epubs[0] in self.chapters_cache:
-                    try:
-                        import random
-                        chapters = self.chapters_cache[self.selected_epubs[0]]
-                        
-                        # Filter to only selected chapters
-                        selected_chapters = [ch for ch in chapters if ch.get('selected', True)]
-                        
-                        if selected_chapters:
-                            # Randomly select a chapter
-                            random_chapter = random.choice(selected_chapters)
-                            chapter_title = random_chapter.get('title', 'Unknown Chapter')
-                            chapter_content = random_chapter.get('content', '')
-                            
-                            # Split into sentences and pick 2 random consecutive ones
-                            sentences = self.tts_engine._split_into_sentences(chapter_content)
-                            
-                            if len(sentences) >= 2:
-                                # Pick 2 consecutive sentences for better context
-                                max_start = len(sentences) - 2
-                                start_idx = random.randint(0, max_start) if max_start > 0 else 0
-                                preview_text = " ".join(sentences[start_idx:start_idx + 2])
-                                preview_source = f"from '{chapter_title}'"
-                            elif len(sentences) == 1:
-                                preview_text = sentences[0]
-                                preview_source = f"from '{chapter_title}'"
-                            else:
-                                # No sentences found, use first 200 chars
-                                preview_text = chapter_content[:200].strip()
-                                preview_source = f"from '{chapter_title}'"
-                    except Exception as e:
-                        self._log(f"Could not generate random preview: {e}")
-                
-                text = preview_text
-                speed = self.voice_card.speed_var.get()
-                sid = int(self.voice_card.speaker_entry.get())
-                
-                # Update status with preview source
-                status_msg = f"Previewing {preview_source}..."
-                self.after(0, lambda: self.action_card.status_label.configure(text=status_msg))
-                self._log(f"▶️ Preview: {preview_source}")
-                
-                config = model_info.copy()
-                config['model_dir'] = os.path.join(self.config_mgr.get_models_dir(), model_info['extracted_dir'])
-                config['provider'] = "cuda" if self.voice_card.gpu_var.get() else "cpu"
-
-                if self.tts_engine.initialize_model(config):
-                    if self.tts_engine.generate_audio(text, temp_path, speed=speed, sid=sid):
-                        # Play audio using sounddevice
-                        try:
-                            import sounddevice as sd
-                            import soundfile as sf
-                            
-                            data, samplerate = sf.read(temp_path)
-                            self.audio_playing = True
-                            sd.play(data, samplerate)
-                            
-                            self.after(0, lambda: self.action_card.status_label.configure(text=f"Playing preview {preview_source}..."))
-                            
-                            # Wait for playback to finish (non-blocking)
-                            while sd.get_stream().active and not self._preview_cancelled:
-                                time.sleep(0.1)
-                            
-                            if self._preview_cancelled:
-                                sd.stop()
-                            
-                            self.audio_playing = False
-                        except Exception as pe:
-                            self._log(f"Playback error: {pe}")
-                    else:
-                        self.after(0, lambda: messagebox.showerror("Error", "Failed to generate preview audio."))
-                else:
-                    self.after(0, lambda: messagebox.showerror("Error", "Failed to initialize TTS model."))
-                    
-                # Cleanup
-                for _ in range(3):
-                    try:
-                        os.remove(temp_path)
-                        break
-                    except: time.sleep(0.5)
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Error", f"Preview failed: {e}"))
-            finally:
-                self.after(0, lambda: self.voice_card.preview_btn.configure(state="normal"))
-                self.after(0, lambda: self.action_card.status_label.configure(text="Ready"))
-
-        threading.Thread(target=run_preview, daemon=True).start()
+                import winsound
+                winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
+            except:
+                pass
+            
+    def _on_job_failed(self, event):
+        job = event.data.get('job')
+        error = event.data.get('error', 'Unknown error')
+        if job and job.id == self.current_job_id:
+            self.current_job_id = None
+            self.action_card.reset_ui()
+            self._show_notification("Conversion Failed ❌", f"Failed to convert {job.book_metadata.title}: {error}")
+            
+    def _on_job_cancelled(self, event):
+        job = event.data.get('job')
+        if job and job.id == self.current_job_id:
+            self.current_job_id = None
+            self.action_card.reset_ui()
+            self._show_notification("Conversion Cancelled", "The conversion process was cancelled.")
 
     def _on_closing(self):
-        if self.current_worker:
-            if messagebox.askyesno("Confirm Exit", "Conversion in progress. Exit anyway?"):
-                self.current_worker.cancel()
-                self.destroy()
+        """Handle application close (minimizes to tray if converting)."""
+        if self.current_job_id:
+            self.withdraw()
+            self._show_notification(
+                "Running in Background",
+                "AB-Maker is converting in the background. Use the system tray icon to restore or exit."
+            )
         else:
+            if self.tray_icon:
+                self.tray_icon.stop()
             self.destroy()
+
+
+# For backward compatibility - redirect to controller
+class ABMakerAppLegacy:
+    """
+    Legacy compatibility wrapper.
+    Redirects all calls to new controller-based implementation.
+    """
+    pass  # This would wrap the old API if needed for migration

@@ -76,7 +76,8 @@ class ConversionWorker:
                 base_dir = os.path.dirname(os.path.abspath(__file__))
                 models_dir = os.path.join(base_dir, "models") 
                 
-            model_path = os.path.join(models_dir, model_info['extracted_dir'])
+            extracted_dir = model_info.get('extracted_dir', '')
+            model_path = os.path.join(models_dir, extracted_dir) if extracted_dir else models_dir
             
             config = model_info.copy()
             config['model_dir'] = model_path
@@ -153,6 +154,47 @@ class ConversionWorker:
                 
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
+
+                # Settings validation for robust resumption
+                settings_file = os.path.join(output_dir, "conversion_settings.json")
+                import json
+                current_settings = {
+                    "model_name": model_info.get("name"),
+                    "speaker_id": str(speaker_id),
+                    "speed": float(speed),
+                    "quality": quality,
+                    "normalize": bool(normalize)
+                }
+                
+                settings_match = True
+                if os.path.exists(settings_file):
+                    try:
+                        with open(settings_file, 'r', encoding='utf-8') as sf_file:
+                            old_settings = json.load(sf_file)
+                            # Compare key settings
+                            for key in current_settings:
+                                if str(old_settings.get(key)) != str(current_settings[key]):
+                                    settings_match = False
+                                    break
+                    except Exception as e:
+                        self.logger.warning(f"Failed to read conversion_settings.json: {e}")
+                        settings_match = False
+                
+                if not settings_match:
+                    self.log("Settings changed (voice/speed/quality). Clearing old cached chapters...")
+                    for f in os.listdir(output_dir):
+                        if f.endswith(".wav"):
+                            try:
+                                os.remove(os.path.join(output_dir, f))
+                            except Exception as e:
+                                self.logger.warning(f"Could not remove old chapter file {f}: {e}")
+                
+                # Write current settings for future runs
+                try:
+                    with open(settings_file, 'w', encoding='utf-8') as sf_file:
+                        json.dump(current_settings, sf_file, indent=4)
+                except Exception as e:
+                    self.logger.warning(f"Failed to write conversion_settings.json: {e}")
 
 
                 generated_files = []

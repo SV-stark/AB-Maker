@@ -10,3 +10,6 @@ numpy
 mutagen
 tkinterdnd2
 Pillow
+imageio-ffmpeg
+pystray
+plyer

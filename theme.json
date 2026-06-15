@@ -42,16 +42,16 @@
         "corner_radius": 10,
         "border_width": 0,
         "fg_color": [
-            "#3b82f6",
-            "#3b82f6"
+            "#6366f1",
+            "#10b981"
         ],
         "hover_color": [
-            "#2563eb",
-            "#2563eb"
+            "#4f46e5",
+            "#059669"
         ],
         "border_color": [
-            "#3b82f6",
-            "#3b82f6"
+            "#6366f1",
+            "#10b981"
         ],
         "text_color": [
             "#ffffff",
@@ -212,8 +212,8 @@
             "#0f172a"
         ],
         "label_fg_color": [
-            "#3b82f6",
-            "#3b82f6"
+            "#6366f1",
+            "#10b981"
         ]
     },
     "CTkTextbox": {

@@ -130,7 +130,8 @@ class AudioService:
         self,
         audio_path: Path,
         on_complete: Optional[Callable[[], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        on_progress: Optional[Callable[[float], None]] = None
     ) -> bool:
         """
         Play audio file.
@@ -139,6 +140,7 @@ class AudioService:
             audio_path: Path to audio file
             on_complete: Optional callback when playback completes
             on_error: Optional callback on error
+            on_progress: Optional callback for playback progress (0.0 to 1.0)
             
         Returns:
             True if playback started successfully
@@ -157,6 +159,8 @@ class AudioService:
                 import soundfile as sf
                 
                 data, samplerate = sf.read(str(audio_path))
+                total_duration = len(data) / samplerate
+                start_time = time.time()
                 
                 with self._playback_lock:
                     if self._cancel_playback:
@@ -170,7 +174,15 @@ class AudioService:
                         if self._cancel_playback:
                             sd.stop()
                             break
+                    
+                    elapsed = time.time() - start_time
+                    progress = min(1.0, elapsed / total_duration) if total_duration > 0 else 0.0
+                    if on_progress:
+                        on_progress(progress)
                     time.sleep(0.1)
+                
+                if on_progress and not self._cancel_playback:
+                    on_progress(1.0)
                 
                 with self._playback_lock:
                     self._is_playing = False

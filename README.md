@@ -80,20 +80,15 @@
 **Required:**
 - Windows 10/11 (x64)
 - Python 3.13+
-- FFmpeg (for M4B/MP3 output)
 
 **Optional:**
 - NVIDIA GPU + CUDA Toolkit (for GPU acceleration)
 
-### 🔧 FFmpeg Installation (Required for M4B/MP3)
+### 🔧 Zero-Config FFmpeg
 
-1. **Download**: [ffmpeg.org/download](https://ffmpeg.org/download.html) or [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
-2. **Extract**: Unzip to `C:\ffmpeg`
-3. **Add to PATH**:
-   - Search → "Edit the system environment variables"
-   - Environment Variables → System variables → Path → New
-   - Add: `C:\ffmpeg\bin`
-4. **Verify**: Run `ffmpeg -version` in CMD/PowerShell
+AB-Maker now handles FFmpeg setup **automatically**. On startup, the application checks for and loads a static FFmpeg binary using the `imageio-ffmpeg` package. 
+
+*No manual downloads, file extractions, or system PATH modifications are required!*
 
 ### 📥 Installation
 

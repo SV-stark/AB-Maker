@@ -58,7 +58,7 @@ class ModelService:
             description=model_data.get('description', ''),
             download_url=model_data.get('download_url'),
             local_path=local_path,
-            is_recommended=bool(model_data.get('is_recommended', False))
+            is_recommended=bool(model_data.get('is_recommended', model_data.get('recommended', False)))
         )
     
     def get_available_models(

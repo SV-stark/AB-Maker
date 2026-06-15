@@ -192,8 +192,16 @@ class VoiceCardUI(ctk.CTkFrame):
             height=40,
             width=160
         )
-        self.preview_btn.pack(padx=16, pady=(8, 12))
+        self.preview_btn.pack(padx=16, pady=(8, 4))
         CTkToolTip(self.preview_btn, text="Preview voice with current settings (F5)")
+
+        self.preview_progress = ctk.CTkProgressBar(
+            preview_section,
+            height=6,
+            width=160
+        )
+        self.preview_progress.pack(padx=16, pady=(0, 12))
+        self.preview_progress.set(0)
         
         # Performance Section
         perf_section = ctk.CTkFrame(right_col, fg_color=("#f8fafc", "#0f172a"), corner_radius=10)

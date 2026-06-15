@@ -22,6 +22,7 @@ class TestConfigManager(unittest.TestCase):
     def test_save_and_load(self):
         self.mgr.set("theme_mode", "dark")
         self.mgr.set("last_speed", 1.5)
+        self.mgr.save()
         
         # Reload
         new_mgr = ConfigManager(self.test_config)

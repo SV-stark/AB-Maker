@@ -255,8 +255,9 @@ class FileService:
             Tuple of (has_space, available_mb)
         """
         try:
-            stat = os.statvfs(path)
-            available_mb = (stat.f_bavail * stat.f_frsize) / (1024 * 1024)
+            import shutil
+            usage = shutil.disk_usage(str(path))
+            available_mb = usage.free / (1024 * 1024)
             return available_mb >= required_mb, available_mb
         except Exception as e:
             logger.warning(f"Cannot check disk space: {e}")

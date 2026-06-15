@@ -6,6 +6,8 @@ from typing import Optional, List, Callable, Dict, Any
 from pathlib import Path
 import uuid
 import logging
+import os
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from models.domain import (
@@ -51,6 +53,7 @@ class ConversionService:
         # Active jobs
         self._active_jobs: Dict[str, ConversionJob] = {}
         self._job_progress: Dict[str, ConversionProgress] = {}
+        self._active_workers: Dict[str, Any] = {}
         
         # Callbacks
         self._progress_callbacks: Dict[str, List[Callable]] = {}
@@ -134,112 +137,168 @@ class ConversionService:
             logger.warning(f"Job already started: {job_id}")
             return False
         
+        # Get model info
+        model_info = self._get_model_info(job.voice_settings.model_name)
+        if not model_info:
+            err_msg = f"Model not found: {job.voice_settings.model_name}"
+            logger.error(err_msg)
+            if error_callback:
+                error_callback(err_msg)
+            return False
+            
         # Register callbacks
         if progress_callback:
             self._progress_callbacks.setdefault(job_id, []).append(progress_callback)
         if complete_callback:
             self._completion_callbacks.setdefault(job_id, []).append(complete_callback)
         
+        # Load pause settings from config
+        pause_settings = {
+            'sentence_pause_ms': self._config_manager.get("pause_sentence", 700) or 700,
+            'clause_pause_ms': self._config_manager.get("pause_clause", 250) or 250,
+            'paragraph_pause_ms': self._config_manager.get("pause_paragraph", 1500) or 1500,
+            'dialogue_pause_ms': self._config_manager.get("pause_dialogue", 400) or 400
+        }
+        
+        # Load character voice assignments if multi-speaker model
+        character_voices = None
+        if model_info.get('num_speakers', 1) > 1:
+            book_id = os.path.basename(job.book_metadata.file_path)
+            character_voices = self._config_manager.get(f"character_voices_{book_id}", None)
+            if character_voices:
+                logger.info(f"Using character voice assignments: {len(character_voices)} characters")
+        
+        # Callbacks for ConversionWorker
+        last_progress_pct = [0.0]  # Use list for nonlocal mutation
+        
+        def worker_log(msg):
+            logger.info(f"[{job_id}] {msg}")
+            if self._event_bus:
+                self._event_bus.emit("job_log", job_id=job_id, message=msg)
+                
+        def worker_progress(p_val):
+            last_progress_pct[0] = p_val * 100.0
+            p_obj = ConversionProgress(
+                job_id=job_id,
+                current_chapter=0,
+                total_chapters=len(job.book_metadata.chapters),
+                current_chapter_title="",
+                chapter_progress=0.0,
+                overall_progress=last_progress_pct[0],
+                status_message=f"Converting... {int(last_progress_pct[0])}%"
+            )
+            self._job_progress[job_id] = p_obj
+            self._notify_progress(job_id, p_obj)
+
+        def worker_status(msg, progress=None, eta=None, chapter_idx=None, chapter_status=None):
+            overall = last_progress_pct[0]
+            if progress is not None:
+                overall = progress * 100.0
+                
+            status_text = msg
+            if eta:
+                status_text = f"{msg} ({eta})"
+                
+            p_obj = ConversionProgress(
+                job_id=job_id,
+                current_chapter=chapter_idx + 1 if chapter_idx is not None else 0,
+                total_chapters=len(job.book_metadata.chapters),
+                current_chapter_title=job.book_metadata.chapters[chapter_idx]['title'] if (chapter_idx is not None and chapter_idx < len(job.book_metadata.chapters)) else "",
+                chapter_progress=0.0,
+                overall_progress=overall,
+                status_message=status_text
+            )
+            self._job_progress[job_id] = p_obj
+            self._notify_progress(job_id, p_obj)
+
+        def worker_done():
+            is_cancelled = job.status == ConversionStatus.CANCELLED or (job_id in self._active_workers and self._active_workers[job_id]._is_cancelled())
+            
+            if is_cancelled:
+                logger.info(f"Worker done (cancelled): {job_id}")
+                if job.status != ConversionStatus.CANCELLED:
+                    job.cancel()
+                if self._event_bus:
+                    self._event_bus.emit("job_cancelled", job=job)
+            else:
+                base_name = job.book_metadata.file_path.stem
+                output_dir_root = job.output_settings.output_dir or job.book_metadata.file_path.parent
+                
+                # Check formatting
+                fmt = job.output_settings.format.value
+                success = False
+                out_path = None
+                
+                if fmt == "m4b":
+                    out_path = Path(output_dir_root) / f"{base_name}.m4b"
+                    success = out_path.exists()
+                elif fmt in ("mp3", "wav"):
+                    out_path = Path(output_dir_root) / f"{base_name}_audiobook"
+                    success = out_path.exists() and len(os.listdir(out_path)) > 0
+                
+                if success:
+                    logger.info(f"Worker done (success): {job_id}. Output: {out_path}")
+                    job.complete(out_path)
+                    self._notify_completion(job_id, job)
+                    if self._event_bus:
+                        self._event_bus.emit("job_completed", job=job)
+                else:
+                    logger.error(f"Worker done (failed - output missing): {job_id}")
+                    err_msg = "Conversion completed but output file was not generated."
+                    job.fail(err_msg)
+                    if error_callback:
+                        error_callback(err_msg)
+                    if self._event_bus:
+                        self._event_bus.emit("job_failed", job=job, error=err_msg)
+            
+            # Clean up active worker reference
+            if job_id in self._active_workers:
+                del self._active_workers[job_id]
+
+        from conversion_worker import ConversionWorker
+        worker = ConversionWorker(
+            tts_engine=self._tts_engine,
+            audio_builder=self._audio_builder,
+            log_callback=worker_log,
+            progress_callback=worker_progress,
+            status_callback=worker_status,
+            done_callback=worker_done
+        )
+        
+        self._active_workers[job_id] = worker
         job.start()
         
         if self._event_bus:
             self._event_bus.emit("job_started", job=job)
-        
-        # Start conversion in background
-        import threading
-        thread = threading.Thread(
-            target=self._run_conversion,
-            args=(job_id, error_callback),
-            daemon=True
+            
+        # Start conversion worker in its own thread
+        output_dir_root = str(job.output_settings.output_dir) if job.output_settings.output_dir else str(job.book_metadata.file_path.parent)
+        worker.start(
+            selected_epubs=[str(job.book_metadata.file_path)],
+            model_info=model_info,
+            output_dir_root=output_dir_root,
+            speed=job.voice_settings.speed,
+            speaker_id=str(job.voice_settings.speaker_id),
+            output_format=job.output_settings.format.value,
+            use_gpu=job.voice_settings.use_gpu,
+            epub_processor=self._epub_processor,
+            custom_cover_path=str(job.output_settings.custom_cover) if job.output_settings.custom_cover else None,
+            quality=job.output_settings.quality,
+            models_dir=str(self._config_manager.get_models_dir()),
+            normalize=job.output_settings.normalize,
+            pause_settings=pause_settings,
+            character_voices=character_voices
         )
-        thread.start()
         
         logger.info(f"Started conversion job: {job_id}")
         return True
     
-    def _run_conversion(self, job_id: str, error_callback: Optional[Callable] = None):
-        """Run the conversion process."""
-        job = self._active_jobs.get(job_id)
-        if not job:
-            return
-        
-        try:
-            # Check if model needs download
-            model_info = self._get_model_info(job.voice_settings.model_name)
-            if model_info and not self._model_manager.is_model_installed(model_info):
-                logger.info(f"Downloading model: {job.voice_settings.model_name}")
-                # TODO: Implement model download with progress
-            
-            # Process chapters
-            total_chapters = len(job.book_metadata.chapters)
-            
-            for i, chapter in enumerate(job.book_metadata.chapters):
-                # Update progress
-                progress = ConversionProgress(
-                    job_id=job_id,
-                    current_chapter=i + 1,
-                    total_chapters=total_chapters,
-                    current_chapter_title=chapter.title,
-                    chapter_progress=0.0,
-                    overall_progress=(i / total_chapters) * 100,
-                    status_message=f"Processing chapter {i + 1}/{total_chapters}: {chapter.title}"
-                )
-                
-                self._job_progress[job_id] = progress
-                self._notify_progress(job_id, progress)
-                
-                # TODO: Generate audio for chapter
-                # TODO: Save chapter audio
-            
-            # Finalize
-            output_path = self._finalize_job(job)
-            job.complete(output_path)
-            
-            self._notify_completion(job_id, job)
-            
-            if self._event_bus:
-                self._event_bus.emit("job_completed", job=job)
-            
-            logger.info(f"Conversion completed: {job_id}")
-            
-        except Exception as e:
-            logger.error(f"Conversion failed: {e}")
-            job.fail(str(e))
-            
-            if error_callback:
-                error_callback(str(e))
-            
-            if self._event_bus:
-                self._event_bus.emit("job_failed", job=job, error=str(e))
-    
     def _get_model_info(self, model_name: str) -> Optional[Dict]:
         """Get model information by name."""
-        # TODO: Get from model manager
+        for m in self._model_manager.list_available_models():
+            if m.get('name') == model_name:
+                return m
         return None
-    
-    def _finalize_job(self, job: ConversionJob) -> Path:
-        """Finalize conversion and create output file."""
-        # TODO: Implement finalization with audio_builder
-        output_path = Path("output.m4b")
-        return output_path
-    
-    def _notify_progress(self, job_id: str, progress: ConversionProgress):
-        """Notify progress callbacks."""
-        callbacks = self._progress_callbacks.get(job_id, [])
-        for callback in callbacks:
-            try:
-                callback(progress)
-            except Exception as e:
-                logger.error(f"Progress callback error: {e}")
-    
-    def _notify_completion(self, job_id: str, job: ConversionJob):
-        """Notify completion callbacks."""
-        callbacks = self._completion_callbacks.get(job_id, [])
-        for callback in callbacks:
-            try:
-                callback(job)
-            except Exception as e:
-                logger.error(f"Completion callback error: {e}")
     
     def cancel_job(self, job_id: str) -> bool:
         """
@@ -256,6 +315,9 @@ class ConversionService:
         
         job = self._active_jobs[job_id]
         job.cancel()
+        
+        if job_id in self._active_workers:
+            self._active_workers[job_id].cancel()
         
         if self._event_bus:
             self._event_bus.emit("job_cancelled", job=job)

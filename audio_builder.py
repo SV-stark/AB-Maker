@@ -42,11 +42,16 @@ class AudioBuilder:
         }
 
     def _get_ffmpeg_cmd(self):
-        # Assume ffmpeg is in PATH
+        try:
+            import imageio_ffmpeg
+            path = imageio_ffmpeg.get_ffmpeg_exe()
+            if path and os.path.exists(path):
+                return path
+        except ImportError:
+            pass
         return "ffmpeg"
 
     def check_ffmpeg(self):
-
         """Checks if FFmpeg is available."""
         try:
             subprocess.run([self._get_ffmpeg_cmd(), "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
